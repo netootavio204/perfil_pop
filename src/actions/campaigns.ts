@@ -2,8 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { verifyAdminSession } from './admin-auth'
-import { CampaignFormat } from '@/types/database'
+import { getAdminSessionPayload } from './admin-auth'
+import { CampaignFormat, Campaign } from '@/types/database'
 
 export type CreateCampaignState = {
   success: boolean
@@ -13,8 +13,8 @@ export type CreateCampaignState = {
 }
 
 export async function createCampaign(formData: FormData): Promise<CreateCampaignState> {
-  const isAdmin = await verifyAdminSession()
-  if (!isAdmin) {
+  const session = await getAdminSessionPayload()
+  if (!session) {
     return { success: false, error: 'Acesso não autorizado. Faça login novamente.' }
   }
 
@@ -22,6 +22,15 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
   let slug = (formData.get('slug') as string)?.trim()
   const format = ((formData.get('format') as string) || '1:1') as CampaignFormat
   const frameFile = formData.get('frame') as File | null
+
+  // Optional custom assigned owner (for Super Admin creating on behalf of a specific user)
+  const assignedUserId = (formData.get('user_id') as string)?.trim()
+  const assignedUserEmail = (formData.get('user_email') as string)?.trim()
+  const assignedUserName = (formData.get('user_name') as string)?.trim()
+
+  const finalUserId = assignedUserId || session.id
+  const finalUserEmail = assignedUserEmail || session.email
+  const finalUserName = assignedUserName || session.name
 
   if (!title) {
     return { success: false, error: 'O título da campanha é obrigatório.' }
@@ -103,7 +112,7 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
 
     const frameUrl = publicUrlData.publicUrl
 
-    // Attempt insert with full V2 schema fields
+    // Attempt insert with full V2 schema fields including user ownership
     let newCampaign: any = null
     const { data: fullData, error: insertError } = await supabase
       .from('campaigns')
@@ -112,6 +121,9 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
         slug,
         frame_url: frameUrl,
         format: selectedFormat,
+        user_id: finalUserId,
+        user_email: finalUserEmail,
+        user_name: finalUserName,
         views_count: 0,
         downloads_count: 0,
       } as any)
@@ -119,9 +131,9 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
       .single()
 
     if (insertError) {
-      console.warn('First insert attempt failed, trying fallback schema without optional metrics columns:', insertError.message)
+      console.warn('First insert attempt with user ownership notice:', insertError.message)
 
-      // Fallback 1: Try insert without metrics columns if they are not in schema
+      // Fallback 1: Insert with format & metrics only
       const { data: fallbackData1, error: fallbackError1 } = await supabase
         .from('campaigns')
         .insert({
@@ -129,6 +141,8 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
           slug,
           frame_url: frameUrl,
           format: selectedFormat,
+          views_count: 0,
+          downloads_count: 0,
         } as any)
         .select()
         .single()
@@ -136,7 +150,7 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
       if (!fallbackError1 && fallbackData1) {
         newCampaign = fallbackData1
       } else {
-        // Fallback 2: Basic V1 schema (title, slug, frame_url)
+        // Fallback 2: Basic V1 schema
         const { data: fallbackData2, error: fallbackError2 } = await supabase
           .from('campaigns')
           .insert({
@@ -152,7 +166,7 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
           await supabase.storage.from('frames').remove([uploadData.path])
           return {
             success: false,
-            error: `Erro ao salvar campanha no banco: ${insertError.message}. Dica: Execute o script 'supabase/schema.sql' no SQL Editor do Supabase para atualizar as colunas.`,
+            error: `Erro ao salvar campanha no banco: ${insertError.message}. Dica: Execute o script 'supabase/schema.sql' no SQL Editor do Supabase.`,
           }
         }
         newCampaign = fallbackData2
@@ -176,20 +190,26 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
   }
 }
 
-export async function getCampaigns() {
+/**
+ * Retrieves campaigns with user filter support.
+ */
+export async function getCampaigns(filterUserId?: string): Promise<Campaign[]> {
   try {
     const supabase = await createClient()
-    const { data, error } = await supabase
-      .from('campaigns')
-      .select('*')
-      .order('created_at', { ascending: false })
+    let query = supabase.from('campaigns').select('*').order('created_at', { ascending: false })
+
+    if (filterUserId && filterUserId !== 'all') {
+      query = query.eq('user_id', filterUserId)
+    }
+
+    const { data, error } = await query
 
     if (error) {
       console.error('Error fetching campaigns:', error)
       return []
     }
 
-    return data || []
+    return (data as Campaign[]) || []
   } catch (err) {
     console.error('Unexpected error in getCampaigns:', err)
     return []
@@ -197,8 +217,8 @@ export async function getCampaigns() {
 }
 
 export async function deleteCampaign(id: string, frameUrl?: string) {
-  const isAdmin = await verifyAdminSession()
-  if (!isAdmin) {
+  const session = await getAdminSessionPayload()
+  if (!session) {
     return { success: false, error: 'Acesso não autorizado.' }
   }
 
@@ -244,7 +264,6 @@ export async function incrementCampaignView(campaignId: string): Promise<boolean
 
     if (error) {
       console.warn('Could not increment campaign views via RPC, falling back to direct update:', error.message)
-      // Fallback if RPC is not installed or has permissions issues
       const { data: current } = await supabase
         .from('campaigns')
         .select('views_count')

@@ -2,9 +2,12 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { hashPassword } from '@/lib/auth-crypto'
+import { cookies } from 'next/headers'
+import { hashPassword, createSessionToken, SessionPayload } from '@/lib/auth-crypto'
 import { getAdminSessionPayload } from '@/actions/admin-auth'
 import { SafeAdminUser, AdminRole } from '@/types/database'
+
+const ADMIN_SESSION_COOKIE = 'perfilpop_admin_session'
 
 export interface CreateUserInput {
   name: string
@@ -216,5 +219,99 @@ export async function toggleAdminUserStatus(userId: string, isActive: boolean): 
     }
   } catch (err: any) {
     return { success: false, error: err?.message || 'Erro ao alterar status.' }
+  }
+}
+
+/**
+ * Allows creating a new admin account directly from the login/registration screen,
+ * and automatically logs in the newly registered user.
+ */
+export async function registerAdminAccount(input: CreateUserInput): Promise<UserActionResult> {
+  const name = (input.name || '').trim()
+  const email = (input.email || '').trim().toLowerCase()
+  const password = (input.password || '').trim()
+  const role: AdminRole = input.role === 'editor' ? 'editor' : 'admin'
+
+  if (!name || name.length < 2) {
+    return { success: false, error: 'O nome deve ter pelo menos 2 caracteres.' }
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!email || !emailRegex.test(email)) {
+    return { success: false, error: 'Informe um e-mail válido.' }
+  }
+
+  if (!password || password.length < 6) {
+    return { success: false, error: 'A senha deve conter no mínimo 6 caracteres.' }
+  }
+
+  try {
+    const supabase = await createClient()
+
+    // Check if email already exists
+    const { data: existingUser } = await supabase
+      .from('admin_users')
+      .select('id, email')
+      .eq('email', email)
+      .maybeSingle()
+
+    if (existingUser) {
+      return { success: false, error: `Já existe uma conta cadastrada com o e-mail ${email}. Faça login.` }
+    }
+
+    // Hash password
+    const { hash, salt } = hashPassword(password)
+    const now = new Date().toISOString()
+
+    const { data: newUser, error: insertError } = await supabase
+      .from('admin_users')
+      .insert({
+        name,
+        email,
+        password_hash: hash,
+        password_salt: salt,
+        role,
+        is_active: true,
+        created_at: now,
+        updated_at: now,
+      })
+      .select('id, name, email, role, is_active, created_at, updated_at')
+      .single()
+
+    if (insertError) {
+      console.error('[registerAdminAccount] Insert error:', insertError)
+      return {
+        success: false,
+        error: `Erro ao salvar no banco: ${insertError.message}. Verifique se executou o script SQL no Supabase.`,
+      }
+    }
+
+    // Log the user in automatically
+    const sessionPayload: SessionPayload = {
+      id: newUser.id,
+      name: newUser.name,
+      email: newUser.email,
+      role: newUser.role as 'admin' | 'editor',
+    }
+
+    const token = createSessionToken(sessionPayload)
+    const cookieStore = await cookies()
+    cookieStore.set(ADMIN_SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7,
+      path: '/',
+    })
+
+    revalidatePath('/admin')
+
+    return {
+      success: true,
+      message: 'Conta criada com sucesso! Redirecionando...',
+      user: newUser as SafeAdminUser,
+    }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erro inesperado ao registrar conta.' }
   }
 }

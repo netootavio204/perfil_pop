@@ -19,6 +19,9 @@ export interface Database {
           slug: string
           frame_url: string
           format: CampaignFormat
+          user_id?: string | null
+          user_email?: string | null
+          user_name?: string | null
           views_count: number
           downloads_count: number
           created_at: string
@@ -29,6 +32,9 @@ export interface Database {
           slug: string
           frame_url: string
           format?: CampaignFormat
+          user_id?: string | null
+          user_email?: string | null
+          user_name?: string | null
           views_count?: number
           downloads_count?: number
           created_at?: string
@@ -39,6 +45,9 @@ export interface Database {
           slug?: string
           frame_url?: string
           format?: CampaignFormat
+          user_id?: string | null
+          user_email?: string | null
+          user_name?: string | null
           views_count?: number
           downloads_count?: number
           created_at?: string

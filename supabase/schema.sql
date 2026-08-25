@@ -6,13 +6,16 @@
 -- 1. Habilitar extensão para geração de UUID
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. Criação da Tabela `campaigns` (V2.0 com métricas e formatos)
+-- 2. Criação da Tabela `campaigns` (V2.0 com métricas, formatos e multi-usuário/proprietário)
 CREATE TABLE IF NOT EXISTS public.campaigns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
     slug TEXT NOT NULL UNIQUE,
     frame_url TEXT NOT NULL,
     format TEXT NOT NULL DEFAULT '1:1' CHECK (format IN ('1:1', '4:5', '3:4', 'circle')),
+    user_id UUID,
+    user_email TEXT,
+    user_name TEXT,
     views_count INTEGER NOT NULL DEFAULT 0,
     downloads_count INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -20,11 +23,15 @@ CREATE TABLE IF NOT EXISTS public.campaigns (
 
 -- Migração para tabelas existentes: adicionar colunas se não existirem
 ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS format TEXT NOT NULL DEFAULT '1:1';
+ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS user_id UUID;
+ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS user_email TEXT;
+ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS user_name TEXT;
 ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS views_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS downloads_count INTEGER NOT NULL DEFAULT 0;
 
 -- 3. Índices para Otimização de Busca e Performance
 CREATE INDEX IF NOT EXISTS idx_campaigns_slug ON public.campaigns(slug);
+CREATE INDEX IF NOT EXISTS idx_campaigns_user_id ON public.campaigns(user_id);
 CREATE INDEX IF NOT EXISTS idx_campaigns_created_at ON public.campaigns(created_at DESC);
 
 -- 4. Funções RPC atômicas para contadores de métricas

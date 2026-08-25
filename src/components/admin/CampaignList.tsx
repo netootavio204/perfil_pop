@@ -20,21 +20,48 @@ import {
   Square,
   Smartphone,
   CircleDot,
+  Users,
 } from 'lucide-react'
+import { SafeAdminUser } from '@/types/database'
 
-export function CampaignList({ initialCampaigns }: { initialCampaigns: Campaign[] }) {
+interface CampaignListProps {
+  initialCampaigns: Campaign[]
+  users?: SafeAdminUser[]
+  currentUser?: {
+    id: string
+    name: string
+    email: string
+    role: string
+  } | null
+}
+
+export function CampaignList({ initialCampaigns, users = [], currentUser }: CampaignListProps) {
   const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns)
   const [search, setSearch] = useState('')
+  const [userFilter, setUserFilter] = useState<string>('all')
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const router = useRouter()
 
-  const filteredCampaigns = campaigns.filter(
-    (c) =>
+  const filteredCampaigns = campaigns.filter((c) => {
+    const matchesSearch =
       c.title.toLowerCase().includes(search.toLowerCase()) ||
-      c.slug.toLowerCase().includes(search.toLowerCase())
-  )
+      c.slug.toLowerCase().includes(search.toLowerCase()) ||
+      (c.user_name && c.user_name.toLowerCase().includes(search.toLowerCase()))
+
+    if (!matchesSearch) return false
+
+    if (userFilter === 'all') return true
+    if (userFilter === 'me') {
+      return (
+        c.user_id === currentUser?.id ||
+        c.user_email === currentUser?.email ||
+        (!c.user_id && currentUser?.id === 'master-admin')
+      )
+    }
+    return c.user_id === userFilter || c.user_email === userFilter
+  })
 
   // Global KPIs Calculation
   const totalViews = campaigns.reduce((acc, c) => acc + (c.views_count || 0), 0)
@@ -159,16 +186,36 @@ export function CampaignList({ initialCampaigns }: { initialCampaigns: Campaign[
             </p>
           </div>
 
-          {/* Search */}
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar campanha ou slug..."
-              className="w-full pl-9.5 pr-4 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
-            />
+          {/* Filters & Search */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+            {users && users.length > 0 && (
+              <div className="relative">
+                <select
+                  value={userFilter}
+                  onChange={(e) => setUserFilter(e.target.value)}
+                  className="w-full sm:w-48 pl-3 pr-8 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-pink-500/50 focus:border-pink-500 transition-all cursor-pointer appearance-none"
+                >
+                  <option value="all">Todos os Usuários</option>
+                  <option value="me">Minhas Campanhas</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      ADM: {u.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar campanha ou slug..."
+                className="w-full pl-9.5 pr-4 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
+              />
+            </div>
           </div>
         </div>
 
@@ -251,17 +298,26 @@ export function CampaignList({ initialCampaigns }: { initialCampaigns: Campaign[
                         <span>/c/{camp.slug}</span>
                       </div>
 
-                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-2">
-                        <Calendar className="w-3 h-3" />
-                        <span>
-                          {camp.created_at
-                            ? new Date(camp.created_at).toLocaleDateString('pt-BR', {
-                                day: '2-digit',
-                                month: 'short',
-                                year: 'numeric',
-                              })
-                            : 'Data não informada'}
-                        </span>
+                      <div className="flex items-center gap-3 flex-wrap text-[11px] text-slate-500 mt-2">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          <span>
+                            {camp.created_at
+                              ? new Date(camp.created_at).toLocaleDateString('pt-BR', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric',
+                                })
+                              : 'Data não informada'}
+                          </span>
+                        </div>
+
+                        {camp.user_name && (
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 font-medium">
+                            <Users className="w-3 h-3 text-pink-400" />
+                            <span>ADM: {camp.user_name}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 

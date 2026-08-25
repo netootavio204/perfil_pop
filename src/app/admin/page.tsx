@@ -45,16 +45,12 @@ export default async function AdminPage({
 
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black text-slate-100 pb-20">
-      <AdminHeader currentUser={session} />
-
-      <div className="max-w-7xl mx-auto px-6 pt-10">
-        <AdminDashboardTabs
-          initialCampaigns={campaigns}
-          initialUsers={users}
-          currentUser={session}
-          defaultTab={initialTab}
-        />
-      </div>
+      <AdminDashboardTabs
+        initialCampaigns={campaigns}
+        initialUsers={users}
+        currentUser={session}
+        defaultTab={initialTab}
+      />
     </main>
   )
 }

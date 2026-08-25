@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createCampaign } from '@/actions/campaigns'
-import { CampaignFormat } from '@/types/database'
+import { SafeAdminUser, CampaignFormat } from '@/types/database'
 import {
   UploadCloud,
   Image as ImageIcon,
@@ -25,13 +25,26 @@ import {
   ArrowDownToLine,
   Maximize2,
   Minimize2,
+  Users,
 } from 'lucide-react'
 
-export function CreateCampaignForm({ onCampaignCreated }: { onCampaignCreated?: () => void }) {
+interface CreateCampaignFormProps {
+  onCampaignCreated?: () => void
+  users?: SafeAdminUser[]
+  currentUser?: {
+    id: string
+    name: string
+    email: string
+    role: string
+  } | null
+}
+
+export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser }: CreateCampaignFormProps) {
   const [title, setTitle] = useState('')
   const [slug, setSlug] = useState('')
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
   const [format, setFormat] = useState<CampaignFormat>('1:1')
+  const [selectedUserId, setSelectedUserId] = useState<string>(currentUser?.id || '')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -306,6 +319,17 @@ export function CreateCampaignForm({ onCampaignCreated }: { onCampaignCreated?: 
       formData.append('format', format)
       formData.append('frame', finalFile)
 
+      const targetUser = users.find((u) => u.id === selectedUserId)
+      if (targetUser) {
+        formData.append('user_id', targetUser.id)
+        formData.append('user_email', targetUser.email)
+        formData.append('user_name', targetUser.name)
+      } else if (currentUser) {
+        formData.append('user_id', currentUser.id)
+        formData.append('user_email', currentUser.email)
+        formData.append('user_name', currentUser.name)
+      }
+
       const result = await createCampaign(formData)
 
       if (result.success && result.slug) {
@@ -444,6 +468,39 @@ export function CreateCampaignForm({ onCampaignCreated }: { onCampaignCreated?: 
                   Link final: <span className="text-indigo-400 font-mono">/c/{slug || 'nome-da-campanha'}</span>
                 </p>
               </div>
+
+              {/* User / Owner Selector */}
+              {users && users.length > 0 && (
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
+                    Proprietário da Campanha (Administrador/Usuário)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-pink-400">
+                      <Users className="w-4 h-4" />
+                    </div>
+                    <select
+                      value={selectedUserId}
+                      onChange={(e) => setSelectedUserId(e.target.value)}
+                      className="w-full rounded-xl bg-slate-950/90 border border-slate-800 pl-10 pr-4 py-3 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500/50 focus:border-pink-500 transition-all cursor-pointer"
+                    >
+                      <option value={currentUser?.id || ''}>
+                        {currentUser?.name || currentUser?.email || 'Minha Própria Conta'} (Atual)
+                      </option>
+                      {users
+                        .filter((u) => u.id !== currentUser?.id)
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name} ({u.email}) — {u.role === 'admin' ? 'Administrador' : 'Editor'}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    Permite atribuir esta campanha para ser gerenciada especificamente por este usuário.
+                  </p>
+                </div>
+              )}
 
               {/* Format Selector */}
               <div>
