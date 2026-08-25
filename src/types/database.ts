@@ -7,6 +7,7 @@ export type Json =
   | Json[]
 
 export type CampaignFormat = '1:1' | '4:5' | '3:4' | 'circle'
+export type AdminRole = 'admin' | 'editor'
 
 export interface Database {
   public: {
@@ -44,6 +45,42 @@ export interface Database {
         }
         Relationships: []
       }
+      admin_users: {
+        Row: {
+          id: string
+          name: string
+          email: string
+          password_hash: string
+          password_salt: string
+          role: AdminRole
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          email: string
+          password_hash: string
+          password_salt: string
+          role?: AdminRole
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          email?: string
+          password_hash?: string
+          password_salt?: string
+          role?: AdminRole
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -60,6 +97,7 @@ export interface Database {
     }
     Enums: {
       campaign_format: CampaignFormat
+      admin_role: AdminRole
     }
     CompositeTypes: {
       [_ in never]: never
@@ -70,4 +108,11 @@ export interface Database {
 export type Campaign = Database['public']['Tables']['campaigns']['Row']
 export type CampaignInsert = Database['public']['Tables']['campaigns']['Insert']
 export type CampaignUpdate = Database['public']['Tables']['campaigns']['Update']
+
+export type AdminUser = Database['public']['Tables']['admin_users']['Row']
+export type AdminUserInsert = Database['public']['Tables']['admin_users']['Insert']
+export type AdminUserUpdate = Database['public']['Tables']['admin_users']['Update']
+
+// Safe public/admin representation without exposing password hashes
+export type SafeAdminUser = Omit<AdminUser, 'password_hash' | 'password_salt'>
 

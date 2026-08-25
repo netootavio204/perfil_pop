@@ -14,21 +14,29 @@
 | **Fase 4** | **Rota Pública e Telemetria de Visualização** | ✅ **CONCLUÍDO** | Rota `/c/[slug]` com telemetria automática incrementando `views_count` (+1) com proteção de sessão, UI responsiva com previews adaptativos por formato (`1:1`, `3:4`, `circle`), Web Share API e compartilhamento WhatsApp. |
 | **Fase 5** | **Motor HTML5 Canvas Avançado** | ✅ **CONCLUÍDO** | Canvas fluido a 60 FPS (`requestAnimationFrame`), multi-touch pinch-to-zoom em smartphones, suporte a proporções dinâmicas (1:1, 3:4 e `ctx.clip()` circular), presets rápidos (centralizar, conter, preencher) e atalhos de teclado. |
 | **Fase 6** | **Exportação, Telemetria de Download & Deploy** | ✅ **CONCLUÍDO** | Telemetria de downloads integrada (`incrementCampaignDownload`), exportação em alta fidelidade PNG/JPEG, checklist de homologação e guia de deploy oficial [DEPLOY_VERCEL.md](./DEPLOY_VERCEL.md). |
+| **Fase 7** | **Módulo de Gestão de Usuários & Multi-Admin** | ✅ **CONCLUÍDO** | Tabela `admin_users` com hash PBKDF2/SHA-512 e salt criptográfico individual, RBAC (`admin`/`editor`), status ativo/inativo, Server Actions de cadastro/exclusão/status e interface visual com abas e modal no `/admin`. |
 
 ---
 
 ## 📂 Arquivos Chave Criados / Atualizados
 
-- 🗄️ **Banco & Telemetria:**
-  - `supabase/schema.sql`: Script SQL completo com RLS, Storage e RPCs (`increment_views`, `increment_downloads`).
-  - `src/actions/campaigns.ts`: Server Actions para criar, listar, excluir campanhas e registrar telemetria.
-  - `src/types/database.ts`: Tipos TypeScript atualizados com `CampaignFormat` e tabelas.
-- 🌐 **Frontend & Páginas:**
+- 🗄️ **Banco & Usuários:**
+  - `supabase/schema.sql`: Script SQL completo com tabelas `campaigns`, `admin_users`, RLS, Storage e RPCs.
+  - `src/lib/auth-crypto.ts`: Utilitários de criptografia (PBKDF2/SHA-512, HMAC tokens de sessão).
+  - `src/actions/users.ts`: Server Actions para criar, listar, excluir e ativar/desativar usuários.
+  - `src/actions/admin-auth.ts`: Autenticação integrada com `admin_users` e fallback seguro.
+  - `src/types/database.ts`: Tipos TypeScript atualizados com `AdminUser`, `AdminRole` e `SafeAdminUser`.
+- 🌐 **Frontend & Painel Admin:**
+  - `src/app/admin/page.tsx`: Painel com suporte a abas unificadas e carregamento de campanhas/usuários.
+  - `src/components/admin/AdminDashboardTabs.tsx`: Componente de navegação entre **Campanhas** e **Usuários**.
+  - `src/components/admin/UserManagement.tsx`: Gestão completa de usuários, busca, badges de cargo e status.
+  - `src/components/admin/CreateUserModal.tsx`: Modal para cadastro de novos usuários com validação.
+  - `src/components/admin/AdminHeader.tsx`: Cabeçalho com identificação do usuário logado e perfil.
+- 🌐 **Frontend & Páginas Públicas:**
   - `src/app/page.tsx`: Landing Page SaaS completa com showcase interativo e conversão.
   - `src/app/c/[slug]/page.tsx`: Rota pública com OpenGraph e SEO dinâmico.
-  - `src/components/campaign/CampaignPublicView.tsx`: Interface pública com telemetria de visualização por sessão, adaptação visual por formato e seleção de foto.
-  - `src/components/campaign/CanvasEditor.tsx`: Motor Canvas 60 FPS com pinch-to-zoom, rotação, zoom, espelhamento, presets e exportação em alta fidelidade.
-  - `src/app/admin/page.tsx` & `src/components/admin/CampaignList.tsx`: Gestão e exibição de métricas em tempo real.
+  - `src/components/campaign/CampaignPublicView.tsx`: Interface pública com telemetria de visualização por sessão.
+  - `src/components/campaign/CanvasEditor.tsx`: Motor Canvas 60 FPS com pinch-to-zoom e exportação.
 - 📖 **Documentação & Deploy:**
   - `DEPLOY_VERCEL.md`: Guia passo a passo de publicação na Vercel com checklist de homologação.
   - `README.md`: Visão geral do projeto, arquitetura, stack e comandos.
