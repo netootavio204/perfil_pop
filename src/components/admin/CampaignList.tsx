@@ -64,7 +64,12 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
 
     if (!matchesSearch) return false
 
-    if (!isMaster) return true
+    if (!isMaster) {
+      return (
+        (c.user_id && c.user_id === currentUser?.id) ||
+        (c.user_email && currentUser?.email && c.user_email.toLowerCase() === currentUser.email.toLowerCase())
+      )
+    }
 
     if (userFilter === 'all') return true
     if (userFilter === 'me') {
@@ -77,9 +82,10 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
     return c.user_id === userFilter || c.user_email === userFilter
   })
 
-  // Global KPIs Calculation
-  const totalViews = campaigns.reduce((acc, c) => acc + (c.views_count || 0), 0)
-  const totalDownloads = campaigns.reduce((acc, c) => acc + (c.downloads_count || 0), 0)
+  // Global KPIs Calculation (Strictly scoped to user permissions)
+  const scopedCampaigns = isMaster ? campaigns : filteredCampaigns
+  const totalViews = scopedCampaigns.reduce((acc, c) => acc + (c.views_count || 0), 0)
+  const totalDownloads = scopedCampaigns.reduce((acc, c) => acc + (c.downloads_count || 0), 0)
   const avgConversion = totalViews > 0 ? ((totalDownloads / totalViews) * 100).toFixed(1) : '0.0'
 
   const copyLink = (slug: string) => {

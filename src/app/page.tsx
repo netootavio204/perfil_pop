@@ -24,6 +24,7 @@ import {
   Flame
 } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
+import { CampaignShowcase } from '@/components/home/CampaignShowcase'
 
 export default function Home() {
   const [waitlistEmail, setWaitlistEmail] = useState('')
@@ -40,7 +41,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-indigo-500 selection:text-white font-sans antialiased">
       {/* Background Glows */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
+      <div className="fixed inset-0 overflow-hidden pointer-none -z-10">
         <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] bg-gradient-to-tr from-indigo-600/20 via-purple-600/20 to-pink-600/10 blur-[130px] rounded-full" />
         <div className="absolute top-1/2 -right-40 w-[600px] h-[600px] bg-blue-600/10 blur-[150px] rounded-full" />
         <div className="absolute -bottom-40 -left-40 w-[600px] h-[600px] bg-purple-600/15 blur-[150px] rounded-full" />
@@ -54,6 +55,10 @@ export default function Home() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
+            <a href="#galeria" className="hover:text-white text-indigo-400 transition-colors flex items-center gap-1 font-semibold">
+              <Flame className="w-3.5 h-3.5 text-amber-400" />
+              <span>Campanhas Ativas</span>
+            </a>
             <a href="#como-funciona" className="hover:text-white transition-colors">
               Como Funciona
             </a>
@@ -64,7 +69,7 @@ export default function Home() {
               Métricas
             </a>
             <a href="#planos" className="hover:text-white transition-colors">
-              Planos & Preços
+              Planos
             </a>
           </nav>
 
@@ -174,6 +179,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Public Campaigns Showcase Section */}
+      <CampaignShowcase />
 
       {/* Interactive Formats Showcase */}
       <section id="formatos" className="py-20 bg-slate-900/50 border-y border-slate-800/80 relative">

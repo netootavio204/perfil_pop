@@ -1,4 +1,4 @@
-Objetivo: Criar o motor em HTML5 Canvas para manipulação interativa da foto do usuário sob a moldura da campanha.
+1Objetivo: Criar o motor em HTML5 Canvas para manipulação interativa da foto do usuário sob a moldura da campanha.
 
 Tarefas:
 

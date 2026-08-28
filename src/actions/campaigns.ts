@@ -217,29 +217,66 @@ export async function getCampaigns(filterUserId?: string): Promise<Campaign[]> {
 
   try {
     const supabase = await createClient()
-    let query = supabase.from('campaigns').select('*').order('created_at', { ascending: false })
+    const { data, error } = await supabase
+      .from('campaigns')
+      .select('*')
+      .order('created_at', { ascending: false })
 
-    // If user is NOT a master admin, strictly isolate to their own campaigns only
-    if (!session.can_access_master_admin) {
-      query = query.or(`user_id.eq.${session.id},user_email.eq.${session.email}`)
-    } else if (filterUserId && filterUserId !== 'all') {
-      if (filterUserId === 'me') {
-        query = query.or(`user_id.eq.${session.id},user_email.eq.${session.email}`)
-      } else {
-        query = query.eq('user_id', filterUserId)
-      }
-    }
-
-    const { data, error } = await query
-
-    if (error) {
+    if (error || !data) {
       console.error('Error fetching campaigns:', error)
       return []
     }
 
-    return (data as Campaign[]) || []
+    const allCampaigns = data as Campaign[]
+
+    // Strict multi-tenant isolation:
+    // If the user does NOT have master admin access, they ONLY see their own campaigns!
+    if (!session.can_access_master_admin) {
+      return allCampaigns.filter(
+        (c) =>
+          (c.user_id && c.user_id === session.id) ||
+          (c.user_email && c.user_email.toLowerCase() === session.email.toLowerCase())
+      )
+    }
+
+    // Master Admin filtering options:
+    if (filterUserId && filterUserId !== 'all') {
+      if (filterUserId === 'me') {
+        return allCampaigns.filter(
+          (c) =>
+            (c.user_id && c.user_id === session.id) ||
+            (c.user_email && c.user_email.toLowerCase() === session.email.toLowerCase()) ||
+            (!c.user_id && !c.user_email)
+        )
+      }
+      return allCampaigns.filter(
+        (c) => c.user_id === filterUserId || c.user_email === filterUserId
+      )
+    }
+
+    return allCampaigns
   } catch (err) {
     console.error('Unexpected error in getCampaigns:', err)
+    return []
+  }
+}
+
+/**
+ * Retrieves public showcase campaigns for the landing page (read-only showcase).
+ */
+export async function getPublicCampaigns(): Promise<Campaign[]> {
+  try {
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from('campaigns')
+      .select('id, title, slug, frame_url, format, views_count, downloads_count, created_at, user_name')
+      .order('created_at', { ascending: false })
+      .limit(12)
+
+    if (error || !data) return []
+    return data as Campaign[]
+  } catch (err) {
+    console.error('Error fetching public showcase campaigns:', err)
     return []
   }
 }
