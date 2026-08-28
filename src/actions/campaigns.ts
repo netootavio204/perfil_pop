@@ -645,3 +645,51 @@ export async function getCampaignLeads(campaignId: string): Promise<CampaignLead
     return []
   }
 }
+
+export type EnrichedCampaignLead = CampaignLead & {
+  campaign_title?: string
+  campaign_slug?: string
+}
+
+/**
+ * Retrieves all leads collected across all authorized campaigns with joined campaign metadata.
+ */
+export async function getAllLeads(): Promise<EnrichedCampaignLead[]> {
+  const session = await getAdminSessionPayload()
+  if (!session) return []
+
+  try {
+    const supabase = await createClient()
+
+    // 1. Fetch campaigns scoped to user permissions
+    const campaigns = await getCampaigns()
+    if (!campaigns || campaigns.length === 0) return []
+
+    const campaignMap = new Map(campaigns.map((c) => [c.id, c]))
+    const campaignIds = Array.from(campaignMap.keys())
+
+    // 2. Fetch leads belonging to these campaigns
+    const { data: leads, error } = await supabase
+      .from('campaign_leads')
+      .select('*')
+      .in('campaign_id', campaignIds)
+      .order('created_at', { ascending: false })
+
+    if (error || !leads) {
+      console.warn('Error in getAllLeads:', error?.message)
+      return []
+    }
+
+    return leads.map((l) => {
+      const camp = campaignMap.get(l.campaign_id)
+      return {
+        ...l,
+        campaign_title: camp?.title || 'Campanha',
+        campaign_slug: camp?.slug || '',
+      }
+    })
+  } catch (err) {
+    console.error('Unexpected error in getAllLeads:', err)
+    return []
+  }
+}

@@ -6,10 +6,18 @@ import { CreateCampaignForm } from '@/components/admin/CreateCampaignForm'
 import { CampaignList } from '@/components/admin/CampaignList'
 import { UserManagement } from '@/components/admin/UserManagement'
 import { CreateUserModal } from '@/components/admin/CreateUserModal'
+import { LeadsDashboard } from '@/components/admin/LeadsDashboard'
 import { SupabaseStatus } from '@/components/SupabaseStatus'
 import { getAdminUsers } from '@/actions/users'
 import { AdminHeader } from '@/components/admin/AdminHeader'
-import { Layers, Users, Activity, UserPlus, Sparkles, ShieldCheck, Crown } from 'lucide-react'
+import {
+  Layers,
+  Users,
+  Activity,
+  UserPlus,
+  Crown,
+  Contact2,
+} from 'lucide-react'
 
 interface AdminDashboardTabsProps {
   initialCampaigns: Campaign[]
@@ -23,7 +31,7 @@ interface AdminDashboardTabsProps {
     can_access_master_admin?: boolean
     plan?: string
   } | null
-  defaultTab?: 'campaigns' | 'users'
+  defaultTab?: 'campaigns' | 'users' | 'leads'
   isNewUserModalOpen?: boolean
   onCloseNewUserModal?: () => void
 }
@@ -40,9 +48,12 @@ export function AdminDashboardTabs({
     currentUser?.is_master_admin || currentUser?.can_access_master_admin
   )
 
-  // Non-master users are locked to the campaigns tab
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'users'>(
-    isMasterAuthorized && defaultTab === 'users' ? 'users' : 'campaigns'
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'users' | 'leads'>(
+    defaultTab === 'users' && isMasterAuthorized
+      ? 'users'
+      : defaultTab === 'leads'
+      ? 'leads'
+      : 'campaigns'
   )
   const [usersList, setUsersList] = useState<SafeAdminUser[]>(initialUsers)
   const [internalModalOpen, setInternalModalOpen] = useState(false)
@@ -80,6 +91,8 @@ export function AdminDashboardTabs({
                   ? isMasterAuthorized
                     ? 'Painel Geral de Campanhas'
                     : 'Minhas Campanhas'
+                  : activeTab === 'leads'
+                  ? 'Central de Leads Capturados'
                   : 'Gestão de Usuários & ADM Master'}
               </h1>
               {isMasterAuthorized ? (
@@ -96,8 +109,10 @@ export function AdminDashboardTabs({
             <p className="text-xs sm:text-sm text-slate-400 mt-1.5">
               {activeTab === 'campaigns'
                 ? isMasterAuthorized
-                  ? 'Gerencie todas as molduras da plataforma, acompanhe métricas de conversão e leads coletados.'
+                  ? 'Gerencie todas as molduras da plataforma, acompanhe métricas de conversão e crie campanhas.'
                   : 'Crie e acompanhe sua campanha personalizada, visualizações e fotos baixadas.'
+                : activeTab === 'leads'
+                ? 'Visualize todos os contatos (WhatsApp e E-mail) capturados antes de cada download de foto.'
                 : 'Controle os administradores e editores autorizados a acessar o painel master do PerfilPop.'}
             </p>
           </div>
@@ -116,28 +131,43 @@ export function AdminDashboardTabs({
               </button>
             )}
 
-            {/* Tab Switcher (Visible ONLY if Master authorized) */}
-            {isMasterAuthorized && (
-              <div className="flex items-center p-1.5 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-inner">
-                <button
-                  onClick={() => setActiveTab('campaigns')}
-                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    activeTab === 'campaigns'
-                      ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-md shadow-pink-600/25'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            {/* Tab Switcher */}
+            <div className="flex items-center p-1.5 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-inner">
+              {/* Tab 1: Campanhas */}
+              <button
+                onClick={() => setActiveTab('campaigns')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  activeTab === 'campaigns'
+                    ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-md shadow-pink-600/25'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Campanhas</span>
+                <span
+                  className={`ml-0.5 px-1.5 py-0.2 rounded-md text-[10px] ${
+                    activeTab === 'campaigns' ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-400'
                   }`}
                 >
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>Campanhas</span>
-                  <span
-                    className={`ml-0.5 px-1.5 py-0.2 rounded-md text-[10px] ${
-                      activeTab === 'campaigns' ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-400'
-                    }`}
-                  >
-                    {initialCampaigns.length}
-                  </span>
-                </button>
+                  {initialCampaigns.length}
+                </span>
+              </button>
 
+              {/* Tab 2: Leads Capturados */}
+              <button
+                onClick={() => setActiveTab('leads')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  activeTab === 'leads'
+                    ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-md shadow-pink-600/25'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                }`}
+              >
+                <Contact2 className="w-3.5 h-3.5" />
+                <span>Leads Capturados</span>
+              </button>
+
+              {/* Tab 3: Usuários (ADM) - Only visible to Master */}
+              {isMasterAuthorized && (
                 <button
                   onClick={() => setActiveTab('users')}
                   className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
@@ -156,12 +186,12 @@ export function AdminDashboardTabs({
                     {usersList.length}
                   </span>
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Tab Content: Campanhas */}
+        {/* Tab Content 1: Campanhas */}
         {activeTab === 'campaigns' && (
           <div className="space-y-8 animate-in fade-in duration-150">
             {/* Section 1: Campaign creation */}
@@ -178,7 +208,7 @@ export function AdminDashboardTabs({
               currentUser={currentUser}
             />
 
-            {/* Section 3: Private System Status & Database Health (Visible to Master only) */}
+            {/* Section 3: Private System Status (Visible to Master only) */}
             {isMasterAuthorized && (
               <div className="pt-8 border-t border-slate-800/60">
                 <div className="flex items-center gap-2 mb-4">
@@ -193,7 +223,12 @@ export function AdminDashboardTabs({
           </div>
         )}
 
-        {/* Tab Content: Usuários (Only accessible by Master) */}
+        {/* Tab Content 2: Leads Dashboard */}
+        {activeTab === 'leads' && (
+          <LeadsDashboard campaigns={initialCampaigns} />
+        )}
+
+        {/* Tab Content 3: Usuários (Only accessible by Master) */}
         {isMasterAuthorized && activeTab === 'users' && (
           <div className="space-y-8 animate-in fade-in duration-150">
             <UserManagement
