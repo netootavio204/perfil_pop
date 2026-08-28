@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getAdminSessionPayload } from './admin-auth'
-import { CampaignFormat, Campaign } from '@/types/database'
+import { CampaignFormat, Campaign, CampaignLead, LeadContactType } from '@/types/database'
 
 export type CreateCampaignState = {
   success: boolean
@@ -12,6 +12,22 @@ export type CreateCampaignState = {
   campaign?: any
 }
 
+export interface RecordLeadInput {
+  campaignId: string
+  contactType: LeadContactType
+  contactValue: string
+  userName?: string
+}
+
+export interface RecordLeadResult {
+  success: boolean
+  leadId?: string
+  error?: string
+}
+
+/**
+ * Creates a new campaign with strict 1-campaign free plan enforcement and owner isolation.
+ */
 export async function createCampaign(formData: FormData): Promise<CreateCampaignState> {
   const session = await getAdminSessionPayload()
   if (!session) {
@@ -23,14 +39,14 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
   const format = ((formData.get('format') as string) || '1:1') as CampaignFormat
   const frameFile = formData.get('frame') as File | null
 
-  // Optional custom assigned owner (for Super Admin creating on behalf of a specific user)
+  // Optional custom assigned owner (for Master Admin creating on behalf of a specific user)
   const assignedUserId = (formData.get('user_id') as string)?.trim()
   const assignedUserEmail = (formData.get('user_email') as string)?.trim()
   const assignedUserName = (formData.get('user_name') as string)?.trim()
 
-  const finalUserId = assignedUserId || session.id
-  const finalUserEmail = assignedUserEmail || session.email
-  const finalUserName = assignedUserName || session.name
+  const finalUserId = session.can_access_master_admin && assignedUserId ? assignedUserId : session.id
+  const finalUserEmail = session.can_access_master_admin && assignedUserEmail ? assignedUserEmail : session.email
+  const finalUserName = session.can_access_master_admin && assignedUserName ? assignedUserName : session.name
 
   if (!title) {
     return { success: false, error: 'O título da campanha é obrigatório.' }
@@ -71,7 +87,24 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
   try {
     const supabase = await createClient()
 
-    // Check if slug already exists
+    // 1. Check Free Plan Campaign Limit (Max 1 campaign for free plan users)
+    const isMasterOrUnlimited = session.is_master_admin || session.plan === 'unlimited'
+    if (!isMasterOrUnlimited) {
+      const { data: userCampaigns, error: countError } = await supabase
+        .from('campaigns')
+        .select('id')
+        .or(`user_id.eq.${finalUserId},user_email.eq.${finalUserEmail}`)
+
+      if (!countError && userCampaigns && userCampaigns.length >= 1) {
+        return {
+          success: false,
+          error:
+            'Limite atingido: O seu plano gratuito permite no máximo 1 campanha por e-mail cadastrado. Para criar uma nova campanha, exclua a existente no seu painel ou solicite upgrade para o Administrador Master.',
+        }
+      }
+    }
+
+    // 2. Check if slug already exists
     const { data: existingCampaign } = await supabase
       .from('campaigns')
       .select('id')
@@ -82,7 +115,7 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
       return { success: false, error: `Já existe uma campanha com o slug "${slug}". Escolha outro link.` }
     }
 
-    // Convert file to buffer for storage upload
+    // 3. Convert file to buffer for storage upload
     const arrayBuffer = await frameFile.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
     const fileExt = frameFile.name.split('.').pop() || 'png'
@@ -112,7 +145,7 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
 
     const frameUrl = publicUrlData.publicUrl
 
-    // Attempt insert with full V2 schema fields including user ownership
+    // 4. Attempt insert with full V3 schema fields
     let newCampaign: any = null
     const { data: fullData, error: insertError } = await supabase
       .from('campaigns')
@@ -131,9 +164,9 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
       .single()
 
     if (insertError) {
-      console.warn('First insert attempt with user ownership notice:', insertError.message)
+      console.warn('First insert attempt warning:', insertError.message)
 
-      // Fallback 1: Insert with format & metrics only
+      // Fallback: Insert with format & metrics only
       const { data: fallbackData1, error: fallbackError1 } = await supabase
         .from('campaigns')
         .insert({
@@ -150,26 +183,11 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
       if (!fallbackError1 && fallbackData1) {
         newCampaign = fallbackData1
       } else {
-        // Fallback 2: Basic V1 schema
-        const { data: fallbackData2, error: fallbackError2 } = await supabase
-          .from('campaigns')
-          .insert({
-            title,
-            slug,
-            frame_url: frameUrl,
-          } as any)
-          .select()
-          .single()
-
-        if (fallbackError2) {
-          console.error('Database insert error:', fallbackError2)
-          await supabase.storage.from('frames').remove([uploadData.path])
-          return {
-            success: false,
-            error: `Erro ao salvar campanha no banco: ${insertError.message}. Dica: Execute o script 'supabase/schema.sql' no SQL Editor do Supabase.`,
-          }
+        await supabase.storage.from('frames').remove([uploadData.path])
+        return {
+          success: false,
+          error: `Erro ao salvar campanha no banco: ${insertError.message}.`,
         }
-        newCampaign = fallbackData2
       }
     } else {
       newCampaign = fullData
@@ -191,15 +209,25 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
 }
 
 /**
- * Retrieves campaigns with user filter support.
+ * Retrieves campaigns with strict user isolation for non-master accounts.
  */
 export async function getCampaigns(filterUserId?: string): Promise<Campaign[]> {
+  const session = await getAdminSessionPayload()
+  if (!session) return []
+
   try {
     const supabase = await createClient()
     let query = supabase.from('campaigns').select('*').order('created_at', { ascending: false })
 
-    if (filterUserId && filterUserId !== 'all') {
-      query = query.eq('user_id', filterUserId)
+    // If user is NOT a master admin, strictly isolate to their own campaigns only
+    if (!session.can_access_master_admin) {
+      query = query.or(`user_id.eq.${session.id},user_email.eq.${session.email}`)
+    } else if (filterUserId && filterUserId !== 'all') {
+      if (filterUserId === 'me') {
+        query = query.or(`user_id.eq.${session.id},user_email.eq.${session.email}`)
+      } else {
+        query = query.eq('user_id', filterUserId)
+      }
     }
 
     const { data, error } = await query
@@ -216,6 +244,147 @@ export async function getCampaigns(filterUserId?: string): Promise<Campaign[]> {
   }
 }
 
+/**
+ * Updates an existing campaign (title, slug, format, and optional new frame image).
+ */
+export async function updateCampaign(campaignId: string, formData: FormData) {
+  const session = await getAdminSessionPayload()
+  if (!session) {
+    return { success: false, error: 'Acesso não autorizado. Faça login novamente.' }
+  }
+
+  const title = (formData.get('title') as string)?.trim()
+  const rawSlug = (formData.get('slug') as string)?.trim()
+  const selectedFormat = (formData.get('format') as CampaignFormat) || '1:1'
+  const newFrameFile = formData.get('frame') as File | null
+
+  if (!campaignId) {
+    return { success: false, error: 'ID da campanha não informado.' }
+  }
+
+  if (!title) {
+    return { success: false, error: 'Por favor, informe o título da campanha.' }
+  }
+
+  if (!rawSlug) {
+    return { success: false, error: 'Por favor, informe o slug da campanha.' }
+  }
+
+  const slug = rawSlug
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9-_]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+
+  try {
+    const supabase = await createClient()
+
+    // 1. Fetch existing campaign to check ownership
+    const { data: existing, error: fetchErr } = await supabase
+      .from('campaigns')
+      .select('*')
+      .eq('id', campaignId)
+      .single()
+
+    if (fetchErr || !existing) {
+      return { success: false, error: 'Campanha não encontrada.' }
+    }
+
+    if (!session.can_access_master_admin) {
+      if (existing.user_id !== session.id && existing.user_email !== session.email) {
+        return { success: false, error: 'Você não tem permissão para editar esta campanha.' }
+      }
+    }
+
+    // 2. Check if slug is used by another campaign
+    if (slug !== existing.slug) {
+      const { data: duplicate } = await supabase
+        .from('campaigns')
+        .select('id')
+        .eq('slug', slug)
+        .neq('id', campaignId)
+        .maybeSingle()
+
+      if (duplicate) {
+        return {
+          success: false,
+          error: `O link "/c/${slug}" já está sendo utilizado por outra campanha. Escolha outro slug.`,
+        }
+      }
+    }
+
+    let updatedFrameUrl = existing.frame_url
+
+    // 3. If a new frame file is provided, upload to storage
+    if (newFrameFile && newFrameFile.size > 0 && typeof newFrameFile.arrayBuffer === 'function') {
+      const fileBuffer = await newFrameFile.arrayBuffer()
+      const sanitizedName = `${Date.now()}_${slug}_frame.png`
+      const filePath = `frames/${sanitizedName}`
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('frames')
+        .upload(filePath, fileBuffer, {
+          contentType: 'image/png',
+          upsert: true,
+        })
+
+      if (uploadError) {
+        return {
+          success: false,
+          error: `Erro ao enviar nova moldura: ${uploadError.message}`,
+        }
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from('frames')
+        .getPublicUrl(uploadData.path)
+
+      updatedFrameUrl = publicUrlData.publicUrl
+    }
+
+    // 4. Update campaign record
+    const { data: updated, error: updateError } = await supabase
+      .from('campaigns')
+      .update({
+        title,
+        slug,
+        format: selectedFormat,
+        frame_url: updatedFrameUrl,
+      } as any)
+      .eq('id', campaignId)
+      .select()
+      .single()
+
+    if (updateError) {
+      return {
+        success: false,
+        error: `Erro ao salvar alterações no banco: ${updateError.message}`,
+      }
+    }
+
+    revalidatePath('/admin')
+    revalidatePath('/')
+    revalidatePath(`/c/${slug}`)
+    if (existing.slug !== slug) {
+      revalidatePath(`/c/${existing.slug}`)
+    }
+
+    return {
+      success: true,
+      slug,
+      campaign: updated,
+    }
+  } catch (err: any) {
+    console.error('Unexpected error in updateCampaign:', err)
+    return { success: false, error: err?.message || 'Erro inesperado ao atualizar campanha.' }
+  }
+}
+
+/**
+ * Deletes a campaign with ownership check.
+ */
 export async function deleteCampaign(id: string, frameUrl?: string) {
   const session = await getAdminSessionPayload()
   if (!session) {
@@ -224,6 +393,19 @@ export async function deleteCampaign(id: string, frameUrl?: string) {
 
   try {
     const supabase = await createClient()
+
+    // Non-masters can only delete their own campaigns
+    if (!session.can_access_master_admin) {
+      const { data: camp } = await supabase
+        .from('campaigns')
+        .select('user_id, user_email')
+        .eq('id', id)
+        .single()
+
+      if (!camp || (camp.user_id !== session.id && camp.user_email !== session.email)) {
+        return { success: false, error: 'Você só pode excluir suas próprias campanhas.' }
+      }
+    }
 
     // If frameUrl is provided, extract file name and remove from storage
     if (frameUrl) {
@@ -255,6 +437,9 @@ export async function deleteCampaign(id: string, frameUrl?: string) {
   }
 }
 
+/**
+ * Atomically increments views count of a campaign.
+ */
 export async function incrementCampaignView(campaignId: string): Promise<boolean> {
   try {
     const supabase = await createClient()
@@ -263,7 +448,7 @@ export async function incrementCampaignView(campaignId: string): Promise<boolean
     })
 
     if (error) {
-      console.warn('Could not increment campaign views via RPC, falling back to direct update:', error.message)
+      // Fallback update
       const { data: current } = await supabase
         .from('campaigns')
         .select('views_count')
@@ -285,6 +470,9 @@ export async function incrementCampaignView(campaignId: string): Promise<boolean
   }
 }
 
+/**
+ * Atomically increments downloads count of a campaign.
+ */
 export async function incrementCampaignDownload(campaignId: string): Promise<boolean> {
   try {
     const supabase = await createClient()
@@ -293,7 +481,7 @@ export async function incrementCampaignDownload(campaignId: string): Promise<boo
     })
 
     if (error) {
-      console.warn('Could not increment campaign downloads via RPC, falling back to direct update:', error.message)
+      // Fallback update
       const { data: current } = await supabase
         .from('campaigns')
         .select('downloads_count')
@@ -312,5 +500,111 @@ export async function incrementCampaignDownload(campaignId: string): Promise<boo
   } catch (err) {
     console.error('Error incrementing downloads:', err)
     return false
+  }
+}
+
+/**
+ * Records a participant lead (WhatsApp or Email) and atomically increments the download count.
+ */
+export async function recordCampaignLeadAndDownload(input: RecordLeadInput): Promise<RecordLeadResult> {
+  const { campaignId, contactType, contactValue, userName } = input
+
+  if (!campaignId) {
+    return { success: false, error: 'ID da campanha não informado.' }
+  }
+
+  const cleanValue = (contactValue || '').trim()
+  if (!cleanValue) {
+    return {
+      success: false,
+      error: `Por favor, informe seu ${contactType === 'whatsapp' ? 'WhatsApp (telefone)' : 'e-mail'}.`,
+    }
+  }
+
+  try {
+    const supabase = await createClient()
+
+    // 1. Try atomic RPC function first
+    const { data: rpcData, error: rpcError } = await supabase.rpc('record_lead_and_download', {
+      p_campaign_id: campaignId,
+      p_contact_type: contactType,
+      p_contact_value: cleanValue,
+      p_user_name: userName ? userName.trim() : undefined,
+    })
+
+    if (!rpcError && rpcData) {
+      return { success: true, leadId: rpcData }
+    }
+
+    console.warn('[recordCampaignLeadAndDownload] RPC notice, using fallback insert:', rpcError?.message || 'RPC offline')
+
+    // 2. Fallback: Direct insert into campaign_leads + increment download
+    const { data: leadData, error: leadError } = await supabase
+      .from('campaign_leads')
+      .insert({
+        campaign_id: campaignId,
+        contact_type: contactType,
+        contact_value: cleanValue,
+        user_name: userName ? userName.trim() : null,
+      })
+      .select('id')
+      .single()
+
+    // Increment download counter
+    await incrementCampaignDownload(campaignId)
+
+    if (leadError) {
+      console.warn('[recordCampaignLeadAndDownload] Lead insert warning:', leadError.message)
+      // Even if lead table is missing, the download was counted
+      return { success: true }
+    }
+
+    return { success: true, leadId: leadData?.id }
+  } catch (err: any) {
+    console.error('Error recording lead:', err)
+    // Always allow the download even if lead recording encounters an unexpected network issue
+    await incrementCampaignDownload(campaignId).catch(() => {})
+    return { success: true }
+  }
+}
+
+/**
+ * Retrieves leads collected for a campaign (with ownership check).
+ */
+export async function getCampaignLeads(campaignId: string): Promise<CampaignLead[]> {
+  const session = await getAdminSessionPayload()
+  if (!session) return []
+
+  try {
+    const supabase = await createClient()
+
+    // If not master admin, verify that this campaign belongs to the user
+    if (!session.can_access_master_admin) {
+      const { data: camp } = await supabase
+        .from('campaigns')
+        .select('user_id, user_email')
+        .eq('id', campaignId)
+        .single()
+
+      if (!camp || (camp.user_id !== session.id && camp.user_email !== session.email)) {
+        return []
+      }
+    }
+
+    const { data, error } = await supabase
+      .from('campaign_leads')
+      .select('*')
+      .eq('campaign_id', campaignId)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.warn('Error fetching campaign leads:', error.message)
+      return []
+    }
+
+    return (data as CampaignLead[]) || []
+  } catch (err) {
+    console.error('Unexpected error fetching leads:', err)
+    return []
   }
 }

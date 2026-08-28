@@ -1,12 +1,12 @@
 -- ==============================================================================
--- SCHEMA DE BANCO DE DADOS E STORAGE (V2.0): PLATAFORMA DE MOLDURAS DINÂMICAS
+-- SCHEMA DE BANCO DE DADOS E STORAGE (V3.0): PLATAFORMA DE MOLDURAS DINÂMICAS
 -- ==============================================================================
 -- Execute este script no SQL Editor do seu projeto Supabase.
 
 -- 1. Habilitar extensão para geração de UUID
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. Criação da Tabela `campaigns` (V2.0 com métricas, formatos e multi-usuário/proprietário)
+-- 2. Criação da Tabela `campaigns` (com métricas, formatos e multi-usuário/proprietário)
 CREATE TABLE IF NOT EXISTS public.campaigns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
@@ -32,6 +32,7 @@ ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS downloads_count INTEGER NO
 -- 3. Índices para Otimização de Busca e Performance
 CREATE INDEX IF NOT EXISTS idx_campaigns_slug ON public.campaigns(slug);
 CREATE INDEX IF NOT EXISTS idx_campaigns_user_id ON public.campaigns(user_id);
+CREATE INDEX IF NOT EXISTS idx_campaigns_user_email ON public.campaigns(user_email);
 CREATE INDEX IF NOT EXISTS idx_campaigns_created_at ON public.campaigns(created_at DESC);
 
 -- 4. Funções RPC atômicas para contadores de métricas
@@ -53,25 +54,21 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 5. Habilitar Segurança por Linha (Row Level Security - RLS)
+-- 5. Habilitar Segurança por Linha (Row Level Security - RLS) para `campaigns`
 ALTER TABLE public.campaigns ENABLE ROW LEVEL SECURITY;
 
--- Políticas de Acesso para `campaigns`:
--- Leitura pública para acesso às campanhas
 DROP POLICY IF EXISTS "Permitir leitura pública de campanhas" ON public.campaigns;
 CREATE POLICY "Permitir leitura pública de campanhas"
     ON public.campaigns
     FOR SELECT
     USING (true);
 
--- Inserção de campanhas pelo painel admin
 DROP POLICY IF EXISTS "Permitir inserção de campanhas" ON public.campaigns;
 CREATE POLICY "Permitir inserção de campanhas"
     ON public.campaigns
     FOR INSERT
     WITH CHECK (true);
 
--- Atualização de campanhas e métricas
 DROP POLICY IF EXISTS "Permitir atualização de campanhas" ON public.campaigns;
 CREATE POLICY "Permitir atualização de campanhas"
     ON public.campaigns
@@ -79,7 +76,6 @@ CREATE POLICY "Permitir atualização de campanhas"
     USING (true)
     WITH CHECK (true);
 
--- Exclusão de campanhas
 DROP POLICY IF EXISTS "Permitir exclusão de campanhas" ON public.campaigns;
 CREATE POLICY "Permitir exclusão de campanhas"
     ON public.campaigns
@@ -88,10 +84,72 @@ CREATE POLICY "Permitir exclusão de campanhas"
 
 
 -- ==============================================================================
+-- 6. TABELA DE LEADS CAPTURADOS NO DOWNLOAD (`campaign_leads`)
+-- ==============================================================================
+
+CREATE TABLE IF NOT EXISTS public.campaign_leads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    campaign_id UUID NOT NULL REFERENCES public.campaigns(id) ON DELETE CASCADE,
+    contact_type TEXT NOT NULL CHECK (contact_type IN ('whatsapp', 'email')),
+    contact_value TEXT NOT NULL,
+    user_name TEXT,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_campaign_leads_campaign_id ON public.campaign_leads(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_campaign_leads_created_at ON public.campaign_leads(created_at DESC);
+
+ALTER TABLE public.campaign_leads ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Permitir leitura de campaign_leads" ON public.campaign_leads;
+CREATE POLICY "Permitir leitura de campaign_leads"
+    ON public.campaign_leads
+    FOR SELECT
+    USING (true);
+
+DROP POLICY IF EXISTS "Permitir inserção de campaign_leads" ON public.campaign_leads;
+CREATE POLICY "Permitir inserção de campaign_leads"
+    ON public.campaign_leads
+    FOR INSERT
+    WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir exclusão de campaign_leads" ON public.campaign_leads;
+CREATE POLICY "Permitir exclusão de campaign_leads"
+    ON public.campaign_leads
+    FOR DELETE
+    USING (true);
+
+-- 7. Função RPC atômica para salvar Lead e incrementar Download da Campanha
+CREATE OR REPLACE FUNCTION public.record_lead_and_download(
+    p_campaign_id UUID,
+    p_contact_type TEXT,
+    p_contact_value TEXT,
+    p_user_name TEXT DEFAULT NULL
+)
+RETURNS UUID AS $$
+DECLARE
+    new_lead_id UUID;
+BEGIN
+    -- Inserir o lead
+    INSERT INTO public.campaign_leads (campaign_id, contact_type, contact_value, user_name)
+    VALUES (p_campaign_id, p_contact_type, p_contact_value, p_user_name)
+    RETURNING id INTO new_lead_id;
+
+    -- Incrementar contador de downloads da campanha
+    UPDATE public.campaigns
+    SET downloads_count = downloads_count + 1
+    WHERE id = p_campaign_id;
+
+    RETURN new_lead_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- ==============================================================================
 -- CONFIGURAÇÃO DO STORAGE BUCKET (frames)
 -- ==============================================================================
 
--- 6. Criação do Bucket de Molduras (`frames`)
+-- 8. Criação do Bucket de Molduras (`frames`)
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
     'frames',
@@ -105,7 +163,7 @@ ON CONFLICT (id) DO UPDATE SET
     file_size_limit = 5242880,
     allowed_mime_types = ARRAY['image/png', 'image/webp', 'image/svg+xml'];
 
--- 7. Políticas de RLS para o Storage (`storage.objects`)
+-- 9. Políticas de RLS para o Storage (`storage.objects`)
 
 DROP POLICY IF EXISTS "Permitir visualização pública de molduras" ON storage.objects;
 CREATE POLICY "Permitir visualização pública de molduras"
@@ -133,7 +191,7 @@ CREATE POLICY "Permitir exclusão de molduras no bucket frames"
 
 
 -- ==============================================================================
--- 8. TABELA DE USUÁRIOS ADMINISTRADORES E EDITORES (`admin_users`)
+-- 10. TABELA DE USUÁRIOS ADMINISTRADORES E EDITORES (`admin_users`)
 -- ==============================================================================
 
 CREATE TABLE IF NOT EXISTS public.admin_users (
@@ -143,10 +201,16 @@ CREATE TABLE IF NOT EXISTS public.admin_users (
     password_hash TEXT NOT NULL,
     password_salt TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'admin' CHECK (role IN ('admin', 'editor')),
+    can_access_master_admin BOOLEAN NOT NULL DEFAULT false,
+    plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'unlimited')),
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Migrações caso a tabela já exista
+ALTER TABLE public.admin_users ADD COLUMN IF NOT EXISTS can_access_master_admin BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.admin_users ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
 
 -- Índices para busca rápida de usuários por e-mail e data
 CREATE INDEX IF NOT EXISTS idx_admin_users_email ON public.admin_users(email);
@@ -156,7 +220,6 @@ CREATE INDEX IF NOT EXISTS idx_admin_users_created_at ON public.admin_users(crea
 ALTER TABLE public.admin_users ENABLE ROW LEVEL SECURITY;
 
 -- Políticas de Acesso para `admin_users`:
--- Acesso total com Service Role / Chave Anon para rotas do servidor
 DROP POLICY IF EXISTS "Permitir leitura de admin_users" ON public.admin_users;
 CREATE POLICY "Permitir leitura de admin_users"
     ON public.admin_users

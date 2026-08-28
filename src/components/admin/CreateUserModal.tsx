@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { createAdminUser } from '@/actions/users'
-import { AdminRole } from '@/types/database'
+import { AdminRole, UserPlan } from '@/types/database'
 import {
   X,
   User,
@@ -10,12 +10,13 @@ import {
   Lock,
   Eye,
   EyeOff,
-  Shield,
   ShieldCheck,
   Edit3,
   UserPlus,
   AlertCircle,
   CheckCircle2,
+  Crown,
+  Zap,
 } from 'lucide-react'
 
 interface CreateUserModalProps {
@@ -29,6 +30,8 @@ export function CreateUserModal({ isOpen, onClose, onUserCreated }: CreateUserMo
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<AdminRole>('admin')
+  const [canAccessMaster, setCanAccessMaster] = useState(false)
+  const [plan, setPlan] = useState<UserPlan>('free')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -64,6 +67,8 @@ export function CreateUserModal({ isOpen, onClose, onUserCreated }: CreateUserMo
         email: email.trim(),
         password: password.trim(),
         role,
+        can_access_master_admin: canAccessMaster,
+        plan,
       })
 
       if (res.success) {
@@ -72,6 +77,8 @@ export function CreateUserModal({ isOpen, onClose, onUserCreated }: CreateUserMo
         setEmail('')
         setPassword('')
         setRole('admin')
+        setCanAccessMaster(false)
+        setPlan('free')
 
         setTimeout(() => {
           onUserCreated()
@@ -88,8 +95,13 @@ export function CreateUserModal({ isOpen, onClose, onUserCreated }: CreateUserMo
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900/95 p-6 sm:p-8 shadow-2xl shadow-purple-950/20 backdrop-blur-2xl">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200"
+    >
+      <div className="relative w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-900/95 p-6 sm:p-8 shadow-2xl shadow-purple-950/20 backdrop-blur-2xl max-h-[90vh] overflow-y-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -105,7 +117,7 @@ export function CreateUserModal({ isOpen, onClose, onUserCreated }: CreateUserMo
           </div>
           <div>
             <h3 className="text-xl font-bold text-white tracking-tight">Cadastrar Novo Usuário</h3>
-            <p className="text-xs text-slate-400">Crie credenciais de acesso para administradores ou editores</p>
+            <p className="text-xs text-slate-400">Crie credenciais e defina os níveis de acesso</p>
           </div>
         </div>
 
@@ -169,7 +181,7 @@ export function CreateUserModal({ isOpen, onClose, onUserCreated }: CreateUserMo
           {/* Senha */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-              Senha Provisória
+              Senha de Acesso
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
@@ -194,43 +206,41 @@ export function CreateUserModal({ isOpen, onClose, onUserCreated }: CreateUserMo
             </div>
           </div>
 
-          {/* Nível de Acesso (Cargo) */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-              Nível de Permissão (Cargo)
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setRole('admin')}
-                className={`flex items-start gap-3 p-3 rounded-2xl border text-left transition-all cursor-pointer ${
-                  role === 'admin'
-                    ? 'bg-pink-500/10 border-pink-500/50 text-white shadow-lg shadow-pink-500/10'
-                    : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <ShieldCheck className={`w-5 h-5 shrink-0 mt-0.5 ${role === 'admin' ? 'text-pink-400' : 'text-slate-500'}`} />
-                <div>
-                  <div className="font-semibold text-xs text-slate-200">Administrador</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">Acesso total e gestão de usuários</div>
-                </div>
-              </button>
+          {/* Master Access Option */}
+          <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Crown className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-bold text-white">Liberar Acesso ao ADM Master</span>
+              </div>
+              <input
+                type="checkbox"
+                id="canAccessMaster"
+                checked={canAccessMaster}
+                onChange={(e) => setCanAccessMaster(e.target.checked)}
+                className="w-4 h-4 accent-pink-500 rounded cursor-pointer"
+              />
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Se ativado, este usuário poderá gerenciar outros usuários e visualizar métricas master.
+            </p>
+          </div>
 
-              <button
-                type="button"
-                onClick={() => setRole('editor')}
-                className={`flex items-start gap-3 p-3 rounded-2xl border text-left transition-all cursor-pointer ${
-                  role === 'editor'
-                    ? 'bg-purple-500/10 border-purple-500/50 text-white shadow-lg shadow-purple-500/10'
-                    : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
+          {/* Plan Selection */}
+          <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-indigo-400" />
+                <span className="text-xs font-bold text-white">Plano de Campanhas</span>
+              </div>
+              <select
+                value={plan}
+                onChange={(e) => setPlan(e.target.value as UserPlan)}
+                className="bg-slate-900 border border-slate-700 text-xs text-white rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-pink-500 cursor-pointer"
               >
-                <Edit3 className={`w-5 h-5 shrink-0 mt-0.5 ${role === 'editor' ? 'text-purple-400' : 'text-slate-500'}`} />
-                <div>
-                  <div className="font-semibold text-xs text-slate-200">Editor</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">Criação e edição de campanhas</div>
-                </div>
-              </button>
+                <option value="free">Gratuito (1 Campanha)</option>
+                <option value="unlimited">Ilimitado / Master</option>
+              </select>
             </div>
           </div>
 

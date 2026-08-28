@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { hashPassword, createSessionToken, SessionPayload } from '@/lib/auth-crypto'
 import { getAdminSessionPayload } from '@/actions/admin-auth'
-import { SafeAdminUser, AdminRole } from '@/types/database'
+import { SafeAdminUser, AdminRole, UserPlan } from '@/types/database'
 
 const ADMIN_SESSION_COOKIE = 'perfilpop_admin_session'
 
@@ -14,6 +14,8 @@ export interface CreateUserInput {
   email: string
   password: string
   role?: AdminRole
+  can_access_master_admin?: boolean
+  plan?: UserPlan
 }
 
 export interface UserActionResult {
@@ -24,20 +26,24 @@ export interface UserActionResult {
 }
 
 /**
- * Lists all registered administrative users (excluding sensitive password hashes).
+ * Lists all registered administrative users (only accessible by master authorized admins).
  */
 export async function getAdminUsers(): Promise<SafeAdminUser[]> {
+  const currentSession = await getAdminSessionPayload()
+  if (!currentSession || !currentSession.can_access_master_admin) {
+    return []
+  }
+
   try {
     const supabase = await createClient()
 
     const { data, error } = await supabase
       .from('admin_users')
-      .select('id, name, email, role, is_active, created_at, updated_at')
+      .select('id, name, email, role, can_access_master_admin, plan, is_active, created_at, updated_at')
       .order('created_at', { ascending: false })
 
     if (error) {
-      console.warn('[getAdminUsers] Database query notice (table may need creation):', error.message)
-      // Return empty array if table doesn't exist yet or query fails
+      console.warn('[getAdminUsers] Database query notice:', error.message)
       return []
     }
 
@@ -57,15 +63,16 @@ export async function createAdminUser(input: CreateUserInput): Promise<UserActio
     return { success: false, error: 'Acesso não autorizado. Faça login primeiro.' }
   }
 
-  // Only admins can create users
-  if (currentSession.role !== 'admin') {
-    return { success: false, error: 'Apenas administradores podem criar novos usuários.' }
+  if (!currentSession.can_access_master_admin) {
+    return { success: false, error: 'Apenas administradores com acesso Master podem criar novos usuários.' }
   }
 
   const name = (input.name || '').trim()
   const email = (input.email || '').trim().toLowerCase()
   const password = (input.password || '').trim()
   const role: AdminRole = input.role === 'editor' ? 'editor' : 'admin'
+  const canAccessMaster = Boolean(input.can_access_master_admin)
+  const plan: UserPlan = input.plan === 'unlimited' ? 'unlimited' : 'free'
 
   if (!name || name.length < 2) {
     return { success: false, error: 'O nome deve ter pelo menos 2 caracteres.' }
@@ -96,8 +103,8 @@ export async function createAdminUser(input: CreateUserInput): Promise<UserActio
 
     // Hash password with cryptographically secure PBKDF2/SHA-512
     const { hash, salt } = hashPassword(password)
-
     const now = new Date().toISOString()
+
     const { data: newUser, error: insertError } = await supabase
       .from('admin_users')
       .insert({
@@ -106,11 +113,13 @@ export async function createAdminUser(input: CreateUserInput): Promise<UserActio
         password_hash: hash,
         password_salt: salt,
         role,
+        can_access_master_admin: canAccessMaster,
+        plan,
         is_active: true,
         created_at: now,
         updated_at: now,
-      })
-      .select('id, name, email, role, is_active, created_at, updated_at')
+      } as any)
+      .select('id, name, email, role, can_access_master_admin, plan, is_active, created_at, updated_at')
       .single()
 
     if (insertError) {
@@ -138,16 +147,84 @@ export async function createAdminUser(input: CreateUserInput): Promise<UserActio
 }
 
 /**
+ * Toggles whether a user has permission to access the Master Admin panel.
+ */
+export async function toggleMasterAdminAccess(userId: string, canAccess: boolean): Promise<UserActionResult> {
+  const currentSession = await getAdminSessionPayload()
+  if (!currentSession || !currentSession.can_access_master_admin) {
+    return { success: false, error: 'Acesso não autorizado.' }
+  }
+
+  if (currentSession.id === userId && !canAccess) {
+    return { success: false, error: 'Você não pode revogar seu próprio acesso Master.' }
+  }
+
+  try {
+    const supabase = await createClient()
+
+    const { error } = await supabase
+      .from('admin_users')
+      .update({
+        can_access_master_admin: canAccess,
+        updated_at: new Date().toISOString(),
+      } as any)
+      .eq('id', userId)
+
+    if (error) {
+      return { success: false, error: `Erro ao atualizar permissão Master: ${error.message}` }
+    }
+
+    revalidatePath('/admin')
+    return {
+      success: true,
+      message: `Permissão de ADM Master ${canAccess ? 'concedida' : 'revogada'} com sucesso.`,
+    }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erro ao alterar permissão Master.' }
+  }
+}
+
+/**
+ * Updates a user's subscription / campaign plan (free vs unlimited).
+ */
+export async function updateUserPlan(userId: string, plan: UserPlan): Promise<UserActionResult> {
+  const currentSession = await getAdminSessionPayload()
+  if (!currentSession || !currentSession.can_access_master_admin) {
+    return { success: false, error: 'Acesso não autorizado.' }
+  }
+
+  try {
+    const supabase = await createClient()
+
+    const { error } = await supabase
+      .from('admin_users')
+      .update({
+        plan,
+        updated_at: new Date().toISOString(),
+      } as any)
+      .eq('id', userId)
+
+    if (error) {
+      return { success: false, error: `Erro ao atualizar plano: ${error.message}` }
+    }
+
+    revalidatePath('/admin')
+    return {
+      success: true,
+      message: `Plano atualizado para "${plan === 'unlimited' ? 'Ilimitado / Master' : 'Gratuito (1 Campanha)'}".`,
+    }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Erro ao alterar plano.' }
+  }
+}
+
+/**
  * Deletes a user by ID with safeguards.
  */
 export async function deleteAdminUser(userId: string): Promise<UserActionResult> {
   const currentSession = await getAdminSessionPayload()
-  if (!currentSession) {
-    return { success: false, error: 'Acesso não autorizado.' }
-  }
-
-  if (currentSession.role !== 'admin') {
-    return { success: false, error: 'Apenas administradores podem excluir usuários.' }
+  if (!currentSession || !currentSession.can_access_master_admin) {
+    return { success: false, error: 'Acesso não autorizado. Apenas administradores com acesso Master podem excluir contas.' }
   }
 
   if (currentSession.id === userId) {
@@ -185,12 +262,8 @@ export async function deleteAdminUser(userId: string): Promise<UserActionResult>
  */
 export async function toggleAdminUserStatus(userId: string, isActive: boolean): Promise<UserActionResult> {
   const currentSession = await getAdminSessionPayload()
-  if (!currentSession) {
+  if (!currentSession || !currentSession.can_access_master_admin) {
     return { success: false, error: 'Acesso não autorizado.' }
-  }
-
-  if (currentSession.role !== 'admin') {
-    return { success: false, error: 'Apenas administradores podem alterar o status de usuários.' }
   }
 
   if (currentSession.id === userId && !isActive) {
@@ -223,8 +296,7 @@ export async function toggleAdminUserStatus(userId: string, isActive: boolean): 
 }
 
 /**
- * Allows creating a new admin account directly from the login/registration screen,
- * and automatically logs in the newly registered user.
+ * Allows creating a new user account directly from the registration screen (default free plan, no master access).
  */
 export async function registerAdminAccount(input: CreateUserInput): Promise<UserActionResult> {
   const name = (input.name || '').trim()
@@ -271,11 +343,13 @@ export async function registerAdminAccount(input: CreateUserInput): Promise<User
         password_hash: hash,
         password_salt: salt,
         role,
+        can_access_master_admin: false,
+        plan: 'free',
         is_active: true,
         created_at: now,
         updated_at: now,
-      })
-      .select('id, name, email, role, is_active, created_at, updated_at')
+      } as any)
+      .select('id, name, email, role, can_access_master_admin, plan, is_active, created_at, updated_at')
       .single()
 
     if (insertError) {
@@ -292,6 +366,9 @@ export async function registerAdminAccount(input: CreateUserInput): Promise<User
       name: newUser.name,
       email: newUser.email,
       role: newUser.role as 'admin' | 'editor',
+      is_master_admin: false,
+      can_access_master_admin: false,
+      plan: 'free',
     }
 
     const token = createSessionToken(sessionPayload)

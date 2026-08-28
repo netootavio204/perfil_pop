@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loginAdmin } from '@/actions/admin-auth'
+import { ADMIN_SESSION_COOKIE } from '@/lib/auth-crypto'
 
 export async function POST(req: NextRequest) {
   let email = ''
@@ -10,7 +11,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}))
     email = body.email || ''
     password = body.password || ''
-  } else if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data')) {
+  } else if (
+    contentType.includes('application/x-www-form-urlencoded') ||
+    contentType.includes('multipart/form-data')
+  ) {
     const formData = await req.formData().catch(() => new FormData())
     email = (formData.get('email') as string) || ''
     password = (formData.get('password') as string) || ''
@@ -18,7 +22,9 @@ export async function POST(req: NextRequest) {
 
   const result = await loginAdmin(email, password)
 
-  const isFormSubmit = contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data')
+  const isFormSubmit =
+    contentType.includes('application/x-www-form-urlencoded') ||
+    contentType.includes('multipart/form-data')
 
   if (!result.success) {
     if (isFormSubmit) {
@@ -30,9 +36,20 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  if (isFormSubmit) {
-    return NextResponse.redirect(new URL('/admin', req.url), 303)
+  // Set-Cookie directly on response
+  const response = isFormSubmit
+    ? NextResponse.redirect(new URL('/admin', req.url), 303)
+    : NextResponse.json({ success: true, user: result.user })
+
+  if (result.token) {
+    response.cookies.set(ADMIN_SESSION_COOKIE, result.token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7,
+      path: '/',
+    })
   }
 
-  return NextResponse.json({ success: true, user: result.user })
+  return response
 }

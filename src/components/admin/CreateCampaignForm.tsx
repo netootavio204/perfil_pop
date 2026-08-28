@@ -26,6 +26,8 @@ import {
   Maximize2,
   Minimize2,
   Users,
+  Lock,
+  Info,
 } from 'lucide-react'
 
 interface CreateCampaignFormProps {
@@ -36,10 +38,19 @@ interface CreateCampaignFormProps {
     name: string
     email: string
     role: string
+    is_master_admin?: boolean
+    can_access_master_admin?: boolean
+    plan?: string
   } | null
+  userCampaignsCount?: number
 }
 
-export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser }: CreateCampaignFormProps) {
+export function CreateCampaignForm({
+  onCampaignCreated,
+  users = [],
+  currentUser,
+  userCampaignsCount = 0,
+}: CreateCampaignFormProps) {
   const [title, setTitle] = useState('')
   const [slug, setSlug] = useState('')
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
@@ -64,6 +75,11 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const frameImageRef = useRef<HTMLImageElement | null>(null)
   const router = useRouter()
+
+  const isMasterOrUnlimited = Boolean(
+    currentUser?.is_master_admin || currentUser?.plan === 'unlimited'
+  )
+  const isFreePlanLimitReached = !isMasterOrUnlimited && userCampaignsCount >= 1
 
   // Target canvas dimensions
   const canvasWidth = 1080
@@ -125,6 +141,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
+    if (isFreePlanLimitReached) return
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFileSelect(e.dataTransfer.files[0])
     }
@@ -222,7 +239,6 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
   const handleAlignBottom = () => {
     const img = frameImageRef.current
     if (!img) return
-    // Calculate Y so bottom of frame meets bottom of canvas
     const renderedHeight = img.naturalHeight * frameScale
     const targetY = (canvasHeight / 2) - (renderedHeight / 2)
     setFramePosition({ x: 0, y: targetY })
@@ -254,6 +270,11 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
     setError(null)
     setSuccessInfo(null)
 
+    if (isFreePlanLimitReached) {
+      setError('Limite do Plano Gratuito atingido (máximo 1 campanha por e-mail).')
+      return
+    }
+
     if (!title.trim()) {
       setError('Informe o título da campanha.')
       return
@@ -277,7 +298,6 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
       let finalFile: File = selectedFile
 
       if (canvas && frameImageRef.current) {
-        // Create full resolution offscreen canvas to guarantee pristine 1080x1350 or 1080x1080 PNG
         const offscreenCanvas = document.createElement('canvas')
         offscreenCanvas.width = canvasWidth
         offscreenCanvas.height = canvasHeight
@@ -319,15 +339,13 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
       formData.append('format', format)
       formData.append('frame', finalFile)
 
-      const targetUser = users.find((u) => u.id === selectedUserId)
-      if (targetUser) {
-        formData.append('user_id', targetUser.id)
-        formData.append('user_email', targetUser.email)
-        formData.append('user_name', targetUser.name)
-      } else if (currentUser) {
-        formData.append('user_id', currentUser.id)
-        formData.append('user_email', currentUser.email)
-        formData.append('user_name', currentUser.name)
+      if (currentUser?.can_access_master_admin) {
+        const targetUser = users.find((u) => u.id === selectedUserId)
+        if (targetUser) {
+          formData.append('user_id', targetUser.id)
+          formData.append('user_email', targetUser.email)
+          formData.append('user_name', targetUser.name)
+        }
       }
 
       const result = await createCampaign(formData)
@@ -364,6 +382,25 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
 
   return (
     <div className="space-y-6">
+      {/* Free Plan Limit Notice Banner */}
+      {isFreePlanLimitReached && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-950/40 p-5 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0 mt-0.5">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-amber-200">
+                Limite de 1 Campanha Atingido (Plano Gratuito)
+              </h4>
+              <p className="text-xs text-amber-300/80 mt-1 leading-relaxed">
+                Você já possui <strong>1 campanha cadastrada</strong> com o seu e-mail. Para criar uma nova moldura personalizada, você pode excluir a campanha existente na lista abaixo ou solicitar a liberação de plano ilimitado com o Administrador Master.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Success Notification Banner */}
       {successInfo && (
         <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/40 p-6 backdrop-blur-lg animate-in fade-in slide-in-from-top-4 duration-300">
@@ -392,7 +429,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
             <div className="flex items-center gap-2 shrink-0">
               <button
                 onClick={() => copyToClipboard(successInfo.url)}
-                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer"
               >
                 {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                 {copied ? 'Copiado!' : 'Copiar Link'}
@@ -412,7 +449,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
       )}
 
       {/* Main Creation Card */}
-      <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8 shadow-xl backdrop-blur-xl">
+      <div className={`rounded-3xl border border-slate-800 bg-slate-900/60 p-6 md:p-8 shadow-xl backdrop-blur-xl ${isFreePlanLimitReached ? 'opacity-70 pointer-events-none' : ''}`}>
         <div className="flex items-center justify-between gap-4 mb-6 pb-6 border-b border-slate-800/80">
           <div>
             <h3 className="text-xl font-bold text-white tracking-tight">Criar Nova Campanha</h3>
@@ -440,10 +477,11 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                 <input
                   type="text"
                   required
+                  disabled={isFreePlanLimitReached}
                   value={title}
                   onChange={handleTitleChange}
                   placeholder="Ex: Campanha Solidária 2026"
-                  className="w-full rounded-xl bg-slate-950/90 border border-slate-800 px-4 py-3 text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
+                  className="w-full rounded-xl bg-slate-950/90 border border-slate-800 px-4 py-3 text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all disabled:opacity-50"
                 />
               </div>
 
@@ -458,10 +496,11 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                   <input
                     type="text"
                     required
+                    disabled={isFreePlanLimitReached}
                     value={slug}
                     onChange={handleSlugChange}
                     placeholder="campanha-solidaria-2026"
-                    className="w-full bg-transparent px-3.5 py-3 text-slate-100 placeholder-slate-500 text-sm focus:outline-none"
+                    className="w-full bg-transparent px-3.5 py-3 text-slate-100 placeholder-slate-500 text-sm focus:outline-none disabled:opacity-50"
                   />
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1.5">
@@ -469,11 +508,11 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                 </p>
               </div>
 
-              {/* User / Owner Selector */}
-              {users && users.length > 0 && (
+              {/* User / Owner Selector (Visible ONLY for Master Admin) */}
+              {currentUser?.can_access_master_admin && users && users.length > 0 && (
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-                    Proprietário da Campanha (Administrador/Usuário)
+                    Proprietário da Campanha (Atribuir a Usuário)
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-pink-400">
@@ -485,20 +524,17 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                       className="w-full rounded-xl bg-slate-950/90 border border-slate-800 pl-10 pr-4 py-3 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500/50 focus:border-pink-500 transition-all cursor-pointer"
                     >
                       <option value={currentUser?.id || ''}>
-                        {currentUser?.name || currentUser?.email || 'Minha Própria Conta'} (Atual)
+                        {currentUser?.name || currentUser?.email || 'Minha Própria Conta'} (Master)
                       </option>
                       {users
                         .filter((u) => u.id !== currentUser?.id)
                         .map((u) => (
                           <option key={u.id} value={u.id}>
-                            {u.name} ({u.email}) — {u.role === 'admin' ? 'Administrador' : 'Editor'}
+                            {u.name} ({u.email}) — {u.plan === 'unlimited' ? 'Ilimitado' : 'Gratuito'}
                           </option>
                         ))}
                     </select>
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-1.5">
-                    Permite atribuir esta campanha para ser gerenciada especificamente por este usuário.
-                  </p>
                 </div>
               )}
 
@@ -510,6 +546,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                 <div className="grid grid-cols-3 gap-2.5">
                   <button
                     type="button"
+                    disabled={isFreePlanLimitReached}
                     onClick={() => setFormat('1:1')}
                     className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all ${
                       format === '1:1'
@@ -524,6 +561,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
 
                   <button
                     type="button"
+                    disabled={isFreePlanLimitReached}
                     onClick={() => setFormat('4:5')}
                     className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all ${
                       format === '4:5' || format === '3:4'
@@ -538,6 +576,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
 
                   <button
                     type="button"
+                    disabled={isFreePlanLimitReached}
                     onClick={() => setFormat('circle')}
                     className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all ${
                       format === 'circle'
@@ -561,7 +600,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                 <div
                   onDrop={handleDrop}
                   onDragOver={handleDragOver}
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => !isFreePlanLimitReached && fileInputRef.current?.click()}
                   className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
                     selectedFile
                       ? 'border-indigo-500/50 bg-indigo-500/5'
@@ -571,6 +610,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                   <input
                     type="file"
                     ref={fileInputRef}
+                    disabled={isFreePlanLimitReached}
                     accept="image/png,image/webp"
                     className="hidden"
                     onChange={(e) => {
@@ -607,7 +647,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                   <button
                     type="button"
                     onClick={handleResetAdjustments}
-                    className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-300 transition-colors"
+                    className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-300 transition-colors cursor-pointer"
                   >
                     <RefreshCcw className="w-3 h-3" />
                     <span>Redefinir</span>
@@ -674,7 +714,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                           e.stopPropagation()
                           removeSelectedFile()
                         }}
-                        className="absolute top-2 right-2 z-20 p-1.5 rounded-full bg-slate-950/80 text-rose-400 hover:text-rose-300 border border-slate-800 hover:bg-slate-900 transition-colors shadow-lg"
+                        className="absolute top-2 right-2 z-20 p-1.5 rounded-full bg-slate-950/80 text-rose-400 hover:text-rose-300 border border-slate-800 hover:bg-slate-900 transition-colors shadow-lg cursor-pointer"
                         title="Remover moldura selecionada"
                       >
                         <X className="w-4 h-4" />
@@ -730,7 +770,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                         <button
                           type="button"
                           onClick={handleAlignBottom}
-                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors font-medium"
+                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 transition-colors font-medium cursor-pointer"
                           title="Alinhar a moldura na base / rodapé"
                         >
                           <ArrowDownToLine className="w-3 h-3" />
@@ -740,7 +780,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                         <button
                           type="button"
                           onClick={handleCenter}
-                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-colors"
+                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-colors cursor-pointer"
                           title="Centralizar moldura"
                         >
                           <Crosshair className="w-3 h-3" />
@@ -750,7 +790,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                         <button
                           type="button"
                           onClick={handleFillWidth}
-                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-colors"
+                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-colors cursor-pointer"
                           title="Preencher largura 100%"
                         >
                           <Maximize2 className="w-3 h-3" />
@@ -760,7 +800,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
                         <button
                           type="button"
                           onClick={handleFit}
-                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-colors"
+                          className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 transition-colors cursor-pointer"
                           title="Conter no quadro"
                         >
                           <Minimize2 className="w-3 h-3" />
@@ -787,7 +827,7 @@ export function CreateCampaignForm({ onCampaignCreated, users = [], currentUser 
           <div className="pt-4 border-t border-slate-800/80 flex items-center justify-end gap-3">
             <button
               type="submit"
-              disabled={loading || !title || !slug || !selectedFile}
+              disabled={loading || isFreePlanLimitReached || !title || !slug || !selectedFile}
               className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium text-sm text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-600/30 cursor-pointer"
             >
               {loading ? (

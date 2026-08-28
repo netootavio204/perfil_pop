@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { deleteCampaign } from '@/actions/campaigns'
 import { Campaign } from '@/types/database'
+import { CampaignLeadsModal } from '@/components/admin/CampaignLeadsModal'
+import { EditCampaignModal } from '@/components/admin/EditCampaignModal'
 import {
   Copy,
   Check,
@@ -21,6 +23,9 @@ import {
   Smartphone,
   CircleDot,
   Users,
+  Contact2,
+  Edit3,
+  PlusCircle,
 } from 'lucide-react'
 import { SafeAdminUser } from '@/types/database'
 
@@ -32,6 +37,9 @@ interface CampaignListProps {
     name: string
     email: string
     role: string
+    is_master_admin?: boolean
+    can_access_master_admin?: boolean
+    plan?: string
   } | null
 }
 
@@ -42,7 +50,11 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [selectedLeadsCampaign, setSelectedLeadsCampaign] = useState<Campaign | null>(null)
+  const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null)
   const router = useRouter()
+
+  const isMaster = Boolean(currentUser?.is_master_admin || currentUser?.can_access_master_admin)
 
   const filteredCampaigns = campaigns.filter((c) => {
     const matchesSearch =
@@ -51,6 +63,8 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
       (c.user_name && c.user_name.toLowerCase().includes(search.toLowerCase()))
 
     if (!matchesSearch) return false
+
+    if (!isMaster) return true
 
     if (userFilter === 'all') return true
     if (userFilter === 'me') {
@@ -77,7 +91,7 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
 
   const handleDelete = async (campaign: Campaign) => {
     const confirmDelete = window.confirm(
-      `Deseja realmente excluir a campanha "${campaign.title}"? Esta ação é irreversível e excluirá as métricas associadas.`
+      `Deseja realmente excluir a campanha "${campaign.title}"? Esta ação é irreversível e excluirá as métricas e leads associados.`
     )
     if (!confirmDelete) return
 
@@ -99,13 +113,18 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
     }
   }
 
+  const scrollToCreateForm = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   const renderFormatBadge = (format: string = '1:1') => {
     switch (format) {
+      case '4:5':
       case '3:4':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/25">
             <Smartphone className="w-3 h-3" />
-            <span>3:4 Retrato</span>
+            <span>4:5 Retrato</span>
           </span>
         )
       case 'circle':
@@ -136,7 +155,9 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
             <Layers className="w-4 h-4 text-indigo-400" />
           </div>
           <p className="text-2xl sm:text-3xl font-extrabold text-white">{campaigns.length}</p>
-          <p className="text-[11px] text-slate-500 mt-1">Total cadastradas</p>
+          <p className="text-[11px] text-slate-500 mt-1">
+            {isMaster ? 'Total no sistema' : 'Sua campanha ativa'}
+          </p>
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
@@ -152,7 +173,7 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
 
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur-xl">
           <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider">Downloads</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Downloads & Leads</span>
             <Download className="w-4 h-4 text-emerald-400" />
           </div>
           <p className="text-2xl sm:text-3xl font-extrabold text-emerald-400">
@@ -176,19 +197,19 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-6 border-b border-slate-800/80">
           <div>
             <h3 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-              <span>Dashboard de Campanhas & Telemetria</span>
+              <span>{isMaster ? 'Dashboard de Campanhas & Telemetria' : 'Suas Campanhas Cadastradas'}</span>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                 {campaigns.length}
               </span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Acompanhe o desempenho de cada moldura em tempo real
+              Acompanhe o desempenho de cada moldura em tempo real e edite quando precisar
             </p>
           </div>
 
           {/* Filters & Search */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
-            {users && users.length > 0 && (
+            {isMaster && users && users.length > 0 && (
               <div className="relative">
                 <select
                   value={userFilter}
@@ -216,6 +237,15 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
                 className="w-full pl-9.5 pr-4 py-2 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
               />
             </div>
+
+            <button
+              onClick={scrollToCreateForm}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors shadow-md shadow-indigo-600/20 shrink-0 cursor-pointer"
+              title="Criar nova campanha"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>+ Criar Nova</span>
+            </button>
           </div>
         </div>
 
@@ -237,7 +267,7 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
             <p className="text-xs text-slate-500 mt-1 max-w-xs">
               {search
                 ? 'Tente pesquisar por outro título ou slug.'
-                : 'Utilize o formulário acima para criar a primeira campanha da plataforma.'}
+                : 'Utilize o formulário acima para cadastrar a primeira campanha.'}
             </p>
           </div>
         ) : (
@@ -256,7 +286,7 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
                     {/* Thumbnail */}
                     <div
                       className={`relative overflow-hidden border border-slate-800 shrink-0 bg-slate-900 ${
-                        camp.format === '3:4'
+                        camp.format === '4:5' || camp.format === '3:4'
                           ? 'w-16 h-20 rounded-lg'
                           : camp.format === 'circle'
                           ? 'w-16 h-16 rounded-full'
@@ -312,10 +342,10 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
                           </span>
                         </div>
 
-                        {camp.user_name && (
+                        {isMaster && camp.user_name && (
                           <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 font-medium">
                             <Users className="w-3 h-3 text-pink-400" />
-                            <span>ADM: {camp.user_name}</span>
+                            <span>{camp.user_name}</span>
                           </div>
                         )}
                       </div>
@@ -323,9 +353,28 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
 
                     {/* Action buttons */}
                     <div className="flex items-center gap-1 shrink-0">
+                      {/* Edit Button */}
+                      <button
+                        onClick={() => setEditingCampaign(camp)}
+                        className="p-2 rounded-lg bg-slate-900 hover:bg-indigo-600/20 text-slate-400 hover:text-indigo-300 border border-slate-800 transition-colors cursor-pointer"
+                        title="Editar título, slug ou moldura da campanha"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+
+                      {/* Leads Button */}
+                      <button
+                        onClick={() => setSelectedLeadsCampaign(camp)}
+                        className="p-2 rounded-lg bg-slate-900 hover:bg-emerald-600/20 text-slate-400 hover:text-emerald-300 border border-slate-800 transition-colors cursor-pointer"
+                        title="Ver contatos & leads capturados nesta campanha"
+                      >
+                        <Contact2 className="w-4 h-4" />
+                      </button>
+
+                      {/* Copy Link Button */}
                       <button
                         onClick={() => copyLink(camp.slug)}
-                        className="p-2 rounded-lg bg-slate-900 hover:bg-indigo-600/20 text-slate-400 hover:text-indigo-300 border border-slate-800 transition-colors"
+                        className="p-2 rounded-lg bg-slate-900 hover:bg-indigo-600/20 text-slate-400 hover:text-indigo-300 border border-slate-800 transition-colors cursor-pointer"
                         title="Copiar link público"
                       >
                         {copiedSlug === camp.slug ? (
@@ -335,6 +384,7 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
                         )}
                       </button>
 
+                      {/* Open Public Page */}
                       <a
                         href={`/c/${camp.slug}`}
                         target="_blank"
@@ -345,10 +395,11 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
                         <ExternalLink className="w-4 h-4" />
                       </a>
 
+                      {/* Delete Button */}
                       <button
                         onClick={() => handleDelete(camp)}
                         disabled={deletingId === camp.id}
-                        className="p-2 rounded-lg bg-slate-900 hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 border border-slate-800 transition-colors disabled:opacity-40"
+                        className="p-2 rounded-lg bg-slate-900 hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 border border-slate-800 transition-colors disabled:opacity-40 cursor-pointer"
                         title="Excluir campanha"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -357,7 +408,7 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
                   </div>
 
                   {/* Telemetry Metrics Bar */}
-                  <div className="pt-3 border-t border-slate-800/80 grid grid-cols-3 gap-2 text-center bg-slate-900/40 -mx-5 -mb-5 px-5 py-3 rounded-b-2xl">
+                  <div className="pt-3 border-t border-slate-800/80 grid grid-cols-3 gap-2 text-center bg-slate-900/40 -mx-5 -mb-5 px-5 py-3 rounded-b-2xl items-center">
                     <div>
                       <span className="text-[10px] uppercase font-semibold text-slate-400 flex items-center justify-center gap-1">
                         <Eye className="w-3 h-3 text-purple-400" />
@@ -368,12 +419,16 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
                       </p>
                     </div>
 
-                    <div>
-                      <span className="text-[10px] uppercase font-semibold text-slate-400 flex items-center justify-center gap-1">
-                        <Download className="w-3 h-3 text-emerald-400" />
+                    <div
+                      onClick={() => setSelectedLeadsCampaign(camp)}
+                      className="cursor-pointer hover:bg-slate-800/50 py-0.5 px-1 rounded-lg transition-colors"
+                      title="Clique para ver lista de leads capturados"
+                    >
+                      <span className="text-[10px] uppercase font-semibold text-emerald-400 flex items-center justify-center gap-1">
+                        <Download className="w-3 h-3" />
                         Downloads
                       </span>
-                      <p className="text-sm font-bold text-emerald-400 mt-0.5">
+                      <p className="text-sm font-bold text-emerald-400 mt-0.5 underline decoration-dotted underline-offset-2">
                         {campDownloads.toLocaleString('pt-BR')}
                       </p>
                     </div>
@@ -394,6 +449,23 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
           </div>
         )}
       </div>
+
+      {/* Campaign Leads Modal */}
+      <CampaignLeadsModal
+        campaign={selectedLeadsCampaign}
+        isOpen={Boolean(selectedLeadsCampaign)}
+        onClose={() => setSelectedLeadsCampaign(null)}
+      />
+
+      {/* Edit Campaign Modal */}
+      <EditCampaignModal
+        campaign={editingCampaign}
+        isOpen={Boolean(editingCampaign)}
+        onClose={() => setEditingCampaign(null)}
+        onCampaignUpdated={() => {
+          router.refresh()
+        }}
+      />
     </div>
   )
 }

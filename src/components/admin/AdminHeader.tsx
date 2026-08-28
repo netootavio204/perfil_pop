@@ -1,16 +1,19 @@
 'use client'
 
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { logoutAdmin } from '@/actions/admin-auth'
 import { Logo } from '@/components/ui/Logo'
-import { LogOut, ArrowLeft, Users, UserPlus } from 'lucide-react'
+import { LogOut, ArrowLeft, UserPlus, Crown } from 'lucide-react'
 
 interface AdminHeaderProps {
   currentUser?: {
     name?: string
     email?: string
     role?: string
+    is_master_admin?: boolean
+    can_access_master_admin?: boolean
+    plan?: string
   } | null
   onOpenNewUserModal?: () => void
 }
@@ -22,6 +25,8 @@ export function AdminHeader({ currentUser, onOpenNewUserModal }: AdminHeaderProp
     await logoutAdmin()
     router.refresh()
   }
+
+  const isMaster = Boolean(currentUser?.is_master_admin || currentUser?.can_access_master_admin)
 
   return (
     <header className="border-b border-slate-800/80 bg-slate-950/70 backdrop-blur-md sticky top-0 z-50">
@@ -38,15 +43,21 @@ export function AdminHeader({ currentUser, onOpenNewUserModal }: AdminHeaderProp
 
           <div className="flex items-center gap-2.5">
             <Logo size="sm" showSubtitle={false} />
-            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-pink-500/20 text-pink-300 border border-pink-500/30">
-              Admin
+            <span
+              className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-md border ${
+                isMaster
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                  : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+              }`}
+            >
+              {isMaster ? 'Master' : 'Painel'}
             </span>
           </div>
         </div>
 
         {/* Right Section */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* Quick Add User Button */}
+          {/* Quick Add User Button (Only if onOpenNewUserModal is supplied) */}
           {onOpenNewUserModal && (
             <button
               onClick={onOpenNewUserModal}
@@ -62,15 +73,25 @@ export function AdminHeader({ currentUser, onOpenNewUserModal }: AdminHeaderProp
           {/* User Profile Badge */}
           {currentUser && (
             <div className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs">
-              <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-pink-600 to-purple-600 text-white font-bold text-[10px] flex items-center justify-center shrink-0">
-                {currentUser.name ? currentUser.name[0].toUpperCase() : 'A'}
+              <div
+                className={`w-6 h-6 rounded-lg font-bold text-[10px] flex items-center justify-center shrink-0 text-white ${
+                  isMaster
+                    ? 'bg-gradient-to-tr from-amber-500 to-pink-600 shadow-amber-500/20'
+                    : 'bg-gradient-to-tr from-indigo-600 to-purple-600 shadow-indigo-500/20'
+                }`}
+              >
+                {isMaster ? <Crown className="w-3.5 h-3.5" /> : currentUser.name ? currentUser.name[0].toUpperCase() : 'U'}
               </div>
               <div className="hidden md:flex flex-col text-left">
                 <span className="text-slate-200 font-semibold text-[11px] leading-tight truncate max-w-[120px]">
                   {currentUser.name || currentUser.email}
                 </span>
-                <span className="text-[9px] text-pink-400 uppercase font-bold tracking-wider">
-                  {currentUser.role || 'admin'}
+                <span
+                  className={`text-[9px] uppercase font-bold tracking-wider ${
+                    isMaster ? 'text-amber-400' : 'text-indigo-400'
+                  }`}
+                >
+                  {isMaster ? 'ADM Master' : currentUser.role || 'editor'}
                 </span>
               </div>
             </div>

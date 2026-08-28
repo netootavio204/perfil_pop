@@ -9,9 +9,9 @@ import {
   createSessionToken,
   verifySessionToken,
   SessionPayload,
+  ADMIN_SESSION_COOKIE,
 } from '@/lib/auth-crypto'
 
-const ADMIN_SESSION_COOKIE = 'perfilpop_admin_session'
 const DEFAULT_EMAIL = 'netootavio204@gmail.com'
 const DEFAULT_PASSWORD = '*120326*'
 
@@ -24,21 +24,31 @@ export async function getAdminSessionPayload(): Promise<SessionPayload | null> {
 
   if (!sessionToken) return null
 
+  const expectedMasterEmail = (process.env.ADMIN_EMAIL || DEFAULT_EMAIL).trim().toLowerCase()
+
   // 1. Verify modern signed session token
   const verified = verifySessionToken(sessionToken)
   if (verified.valid && verified.payload) {
-    return verified.payload
+    const isMasterEmail = verified.payload.email.toLowerCase() === expectedMasterEmail
+    return {
+      ...verified.payload,
+      is_master_admin: isMasterEmail || verified.payload.is_master_admin || false,
+      can_access_master_admin: isMasterEmail ? true : (verified.payload.can_access_master_admin || false),
+      plan: isMasterEmail ? 'unlimited' : (verified.payload.plan || 'free'),
+    }
   }
 
   // 2. Legacy fallback support for previously established base64 sessions
   try {
-    const expectedEmail = (process.env.ADMIN_EMAIL || DEFAULT_EMAIL).trim().toLowerCase()
     if (sessionToken.startsWith('session_')) {
       return {
         id: 'master-admin',
-        email: expectedEmail,
+        email: expectedMasterEmail,
         name: 'Administrador Master',
         role: 'admin',
+        is_master_admin: true,
+        can_access_master_admin: true,
+        plan: 'unlimited',
       }
     }
   } catch {
@@ -74,6 +84,7 @@ export async function loginAdmin(email: string, password: string) {
 
   const expectedMasterEmail = (process.env.ADMIN_EMAIL || DEFAULT_EMAIL).trim().toLowerCase()
   const expectedMasterPassword = (process.env.ADMIN_PASSWORD || DEFAULT_PASSWORD).trim()
+  const isMasterUser = cleanEmail === expectedMasterEmail
 
   // 1. Attempt database authentication against `admin_users` table
   try {
@@ -81,7 +92,7 @@ export async function loginAdmin(email: string, password: string) {
 
     const { data: dbUser, error: dbError } = await supabase
       .from('admin_users')
-      .select('id, name, email, password_hash, password_salt, role, is_active')
+      .select('id, name, email, password_hash, password_salt, role, is_active, can_access_master_admin, plan')
       .eq('email', cleanEmail)
       .maybeSingle()
 
@@ -92,11 +103,17 @@ export async function loginAdmin(email: string, password: string) {
 
       const isPasswordValid = verifyPassword(cleanPassword, dbUser.password_hash, dbUser.password_salt)
       if (isPasswordValid) {
+        const canAccessMaster = isMasterUser || Boolean(dbUser.can_access_master_admin)
+        const userPlan = isMasterUser ? 'unlimited' : (dbUser.plan || 'free')
+
         const sessionPayload: SessionPayload = {
           id: dbUser.id,
           name: dbUser.name,
           email: dbUser.email,
           role: dbUser.role as 'admin' | 'editor',
+          is_master_admin: isMasterUser,
+          can_access_master_admin: canAccessMaster,
+          plan: userPlan,
         }
 
         const token = createSessionToken(sessionPayload)
@@ -110,7 +127,7 @@ export async function loginAdmin(email: string, password: string) {
         })
 
         revalidatePath('/admin')
-        return { success: true, user: sessionPayload }
+        return { success: true, user: sessionPayload, token }
       }
     }
   } catch (err) {
@@ -118,12 +135,15 @@ export async function loginAdmin(email: string, password: string) {
   }
 
   // 2. Master Fallback (Master admin from environment / defaults)
-  if (cleanEmail === expectedMasterEmail && cleanPassword === expectedMasterPassword) {
+  if (isMasterUser && cleanPassword === expectedMasterPassword) {
     const sessionPayload: SessionPayload = {
       id: 'master-admin',
       name: 'Administrador Master',
       email: expectedMasterEmail,
       role: 'admin',
+      is_master_admin: true,
+      can_access_master_admin: true,
+      plan: 'unlimited',
     }
 
     const token = createSessionToken(sessionPayload)
@@ -137,7 +157,7 @@ export async function loginAdmin(email: string, password: string) {
     })
 
     revalidatePath('/admin')
-    return { success: true, user: sessionPayload }
+    return { success: true, user: sessionPayload, token }
   }
 
   return { success: false, error: 'E-mail ou senha incorretos.' }

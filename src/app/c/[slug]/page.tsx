@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { CampaignPublicView } from '@/components/campaign/CampaignPublicView'
+import { incrementCampaignView } from '@/actions/campaigns'
 
 interface CampaignPageProps {
   params: Promise<{
@@ -67,6 +68,13 @@ export default async function CampaignPage({ params }: CampaignPageProps) {
 
   if (error || !campaign) {
     notFound()
+  }
+
+  // Increment view counter on the server
+  try {
+    await incrementCampaignView(campaign.id)
+  } catch (err) {
+    console.warn('Server view increment notice:', err)
   }
 
   return <CampaignPublicView campaign={campaign} />

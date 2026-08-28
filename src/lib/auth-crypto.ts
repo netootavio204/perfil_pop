@@ -1,4 +1,7 @@
 import crypto from 'crypto'
+import { UserPlan, AdminRole } from '@/types/database'
+
+export const ADMIN_SESSION_COOKIE = 'perfilpop_admin_session'
 
 const ITERATIONS = 100000
 const KEY_LENGTH = 64
@@ -42,7 +45,10 @@ export interface SessionPayload {
   id: string
   email: string
   name: string
-  role: 'admin' | 'editor'
+  role: AdminRole
+  is_master_admin?: boolean
+  can_access_master_admin?: boolean
+  plan?: UserPlan
   createdAt?: number
 }
 

@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { CampaignFormat } from '@/types/database'
-import { incrementCampaignDownload } from '@/actions/campaigns'
+import { CampaignFormat, LeadContactType } from '@/types/database'
+import { recordCampaignLeadAndDownload } from '@/actions/campaigns'
+import { DownloadLeadModal } from '@/components/campaign/DownloadLeadModal'
+import { CelebrationModal } from '@/components/campaign/CelebrationModal'
 import {
   ZoomIn,
   ZoomOut,
@@ -59,7 +61,9 @@ export function CanvasEditor({
   const pinchStartDistanceRef = useRef<number | null>(null)
   const pinchStartScaleRef = useRef(1)
 
-  // Download / Export state
+  // Lead Modal & Celebration Modal states
+  const [isLeadModalOpen, setIsLeadModalOpen] = useState(false)
+  const [isCelebrationModalOpen, setIsCelebrationModalOpen] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [downloadSuccess, setDownloadSuccess] = useState(false)
 
@@ -231,7 +235,6 @@ export function CanvasEditor({
     if (e.touches.length === 1) {
       handlePointerDown(e.touches[0].clientX, e.touches[0].clientY)
     } else if (e.touches.length === 2) {
-      // Initialize pinch to zoom
       setIsDragging(false)
       const t1 = e.touches[0]
       const t2 = e.touches[1]
@@ -305,7 +308,6 @@ export function CanvasEditor({
   // Keyboard navigation for precision fine-tuning
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept if typing in an input
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return
 
       const step = e.shiftKey ? 10 : 2
@@ -343,21 +345,34 @@ export function CanvasEditor({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  // 4. Download Final High-Resolution Image & Telemetry
-  const handleDownload = async () => {
+  // 4. Initiates download flow by opening lead capture modal
+  const handleInitiateDownload = () => {
+    if (!imagesLoaded) return
+    setIsLeadModalOpen(true)
+  }
+
+  // 5. Executes Lead recording + Image file download + Confetti Celebration
+  const handleProcessDownload = async (leadData: {
+    contactType: LeadContactType
+    contactValue: string
+    userName?: string
+  }) => {
     const canvas = canvasRef.current
     if (!canvas) return
 
     setDownloading(true)
     try {
-      // Trigger download telemetry asynchronously in background
+      // 1. Record lead in Supabase & increment download counter
       if (campaignId) {
-        incrementCampaignDownload(campaignId).catch((err) => {
-          console.warn('Telemetry error on download:', err)
+        await recordCampaignLeadAndDownload({
+          campaignId,
+          contactType: leadData.contactType,
+          contactValue: leadData.contactValue,
+          userName: leadData.userName,
         })
       }
 
-      // Export high-res PNG
+      // 2. Export high-res PNG file to device
       canvas.toBlob(
         (blob) => {
           if (!blob) {
@@ -384,17 +399,18 @@ export function CanvasEditor({
             URL.revokeObjectURL(blobUrl)
           }, 1500)
 
-          setDownloadSuccess(true)
-          setTimeout(() => setDownloadSuccess(false), 4500)
           setDownloading(false)
+          setIsLeadModalOpen(false)
+          setDownloadSuccess(true)
+          setIsCelebrationModalOpen(true)
         },
         'image/png',
         1.0
       )
     } catch (err: any) {
-      console.error('Erro ao gerar download da imagem:', err)
+      console.error('Erro ao processar download:', err)
       setDownloading(false)
-      alert('Erro ao exportar a imagem. Certifique-se de que a imagem e moldura foram carregadas corretamente.')
+      alert('Erro ao exportar a imagem. Tente novamente.')
     }
   }
 
@@ -616,27 +632,18 @@ export function CanvasEditor({
             <div className="pt-4 border-t border-slate-800 space-y-3">
               <button
                 type="button"
-                onClick={handleDownload}
+                onClick={handleInitiateDownload}
                 disabled={downloading || !imagesLoaded}
-                className="w-full flex items-center justify-center gap-2.5 py-3.5 px-5 rounded-2xl font-bold text-sm text-white bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-indigo-600/30 transition-all cursor-pointer"
+                className="w-full flex items-center justify-center gap-2.5 py-3.5 px-5 rounded-2xl font-bold text-sm text-white bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-indigo-600/30 transition-all cursor-pointer"
               >
-                {downloading ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Processando Imagem HD...</span>
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4" />
-                    <span>Baixar Imagem com Moldura</span>
-                  </>
-                )}
+                <Download className="w-4 h-4" />
+                <span>Baixar Imagem com Moldura</span>
               </button>
 
               {downloadSuccess && (
                 <div className="flex items-center justify-center gap-1.5 text-xs text-emerald-400 font-medium py-1 animate-in fade-in duration-200">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Download concluído com sucesso!</span>
+                  <span>Foto baixada com sucesso!</span>
                 </div>
               )}
 
@@ -652,6 +659,23 @@ export function CanvasEditor({
           </div>
         </div>
       </div>
+
+      {/* Step 1: Pre-download Lead Capture Modal (WhatsApp / Email) */}
+      <DownloadLeadModal
+        isOpen={isLeadModalOpen}
+        campaignTitle={campaignTitle}
+        onClose={() => setIsLeadModalOpen(false)}
+        onSubmit={handleProcessDownload}
+        loading={downloading}
+      />
+
+      {/* Step 2: Post-download Celebration Modal with Confetti */}
+      <CelebrationModal
+        isOpen={isCelebrationModalOpen}
+        campaignTitle={campaignTitle}
+        campaignSlug={campaignSlug}
+        onClose={() => setIsCelebrationModalOpen(false)}
+      />
     </div>
   )
 }
