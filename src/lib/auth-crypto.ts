@@ -7,11 +7,15 @@ const ITERATIONS = 100000
 const KEY_LENGTH = 64
 const DIGEST = 'sha512'
 
+export const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds
+
 /**
- * Derives a secret key for session signing from env or fallback
+ * Derives a secret key for session signing from env or dynamic project identifier
  */
 function getSigningSecret(): string {
-  return process.env.AUTH_SECRET || process.env.ADMIN_PASSWORD || 'perfilpop_secret_salt_2026'
+  const envSecret = process.env.AUTH_SECRET || process.env.ADMIN_PASSWORD
+  if (envSecret) return envSecret
+  return 'perfilpop_secure_fallback_salt_' + (process.env.NEXT_PUBLIC_SUPABASE_URL || 'default_2026')
 }
 
 /**
@@ -53,7 +57,7 @@ export interface SessionPayload {
 }
 
 /**
- * Creates an HMAC signed session token containing user metadata.
+ * Creates an HMAC signed session token containing user metadata and timestamp.
  */
 export function createSessionToken(payload: SessionPayload): string {
   const secret = getSigningSecret()
@@ -67,7 +71,7 @@ export function createSessionToken(payload: SessionPayload): string {
 }
 
 /**
- * Verifies an HMAC signed session token and extracts the payload.
+ * Verifies an HMAC signed session token, validates signature and enforces strict 7-day expiration.
  */
 export function verifySessionToken(token: string): { valid: boolean; payload?: SessionPayload } {
   if (!token || typeof token !== 'string') {
@@ -108,6 +112,16 @@ export function verifySessionToken(token: string): { valid: boolean; payload?: S
 
     const jsonString = Buffer.from(base64Data, 'base64url').toString('utf-8')
     const payload = JSON.parse(jsonString) as SessionPayload
+
+    // Strict expiration validation
+    if (!payload.createdAt || typeof payload.createdAt !== 'number') {
+      return { valid: false }
+    }
+
+    const tokenAge = Date.now() - payload.createdAt
+    if (tokenAge < 0 || tokenAge > SESSION_MAX_AGE_MS) {
+      return { valid: false } // Expired token
+    }
 
     return { valid: true, payload }
   } catch {

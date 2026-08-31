@@ -221,28 +221,15 @@ CREATE INDEX IF NOT EXISTS idx_admin_users_created_at ON public.admin_users(crea
 -- Habilitar Segurança por Linha (Row Level Security - RLS)
 ALTER TABLE public.admin_users ENABLE ROW LEVEL SECURITY;
 
--- Políticas de Acesso para `admin_users`:
+-- Políticas de Acesso restritas para `admin_users` (protegendo senhas e hashes contra leitura anônima):
 DROP POLICY IF EXISTS "Permitir leitura de admin_users" ON public.admin_users;
-CREATE POLICY "Permitir leitura de admin_users"
-    ON public.admin_users
-    FOR SELECT
-    USING (true);
-
 DROP POLICY IF EXISTS "Permitir inserção de admin_users" ON public.admin_users;
-CREATE POLICY "Permitir inserção de admin_users"
-    ON public.admin_users
-    FOR INSERT
-    WITH CHECK (true);
-
 DROP POLICY IF EXISTS "Permitir atualização de admin_users" ON public.admin_users;
-CREATE POLICY "Permitir atualização de admin_users"
+DROP POLICY IF EXISTS "Permitir exclusão de admin_users" ON public.admin_users;
+
+CREATE POLICY "Acesso restrito service_role para admin_users"
     ON public.admin_users
-    FOR UPDATE
+    FOR ALL
+    TO service_role
     USING (true)
     WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Permitir exclusão de admin_users" ON public.admin_users;
-CREATE POLICY "Permitir exclusão de admin_users"
-    ON public.admin_users
-    FOR DELETE
-    USING (true);

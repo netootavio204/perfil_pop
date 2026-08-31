@@ -19,6 +19,44 @@ export type CreateCampaignState = {
   campaign?: any
 }
 
+/**
+ * Security: Validates real binary magic bytes to guarantee the uploaded buffer
+ * is an authentic PNG or WebP image, rejecting disguised HTML, SVG or executables.
+ */
+function validateImageBuffer(buffer: Buffer): { valid: boolean; extension: 'png' | 'webp' | null } {
+  if (!buffer || buffer.length < 12) return { valid: false, extension: null }
+
+  // PNG Magic Bytes: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return { valid: true, extension: 'png' }
+  }
+
+  // WebP Magic Bytes: RIFF .... WEBP
+  if (
+    buffer[0] === 0x52 &&
+    buffer[1] === 0x49 &&
+    buffer[2] === 0x46 &&
+    buffer[3] === 0x46 &&
+    buffer[8] === 0x57 &&
+    buffer[9] === 0x45 &&
+    buffer[10] === 0x42 &&
+    buffer[11] === 0x50
+  ) {
+    return { valid: true, extension: 'webp' }
+  }
+
+  return { valid: false, extension: null }
+}
+
 export interface RecordLeadInput {
   campaignId: string
   contactType: LeadContactType
@@ -138,13 +176,25 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
       const file = frameFiles[i]
       const arrayBuffer = await file.arrayBuffer()
       const buffer = Buffer.from(arrayBuffer)
-      const fileExt = file.name.split('.').pop() || 'png'
+
+      const validation = validateImageBuffer(buffer)
+      if (!validation.valid || !validation.extension) {
+        if (uploadedPaths.length > 0) {
+          await supabase.storage.from('frames').remove(uploadedPaths)
+        }
+        return {
+          success: false,
+          error: `O arquivo "${file.name}" não é uma imagem PNG ou WebP válida. Arquivos corrompidos ou com formatos não permitidos são rejeitados.`,
+        }
+      }
+
+      const fileExt = validation.extension
       const fileName = `${slug}-${Date.now()}-${i + 1}.${fileExt}`
 
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('frames')
         .upload(fileName, buffer, {
-          contentType: file.type || 'image/png',
+          contentType: fileExt === 'png' ? 'image/png' : 'image/webp',
           cacheControl: '3600',
           upsert: false,
         })
@@ -402,13 +452,24 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
     for (let i = 0; i < newFrameFiles.length; i++) {
       const file = newFrameFiles[i]
       const fileBuffer = await file.arrayBuffer()
-      const sanitizedName = `${Date.now()}_${slug}_frame_${i + 1}.png`
+      const buffer = Buffer.from(fileBuffer)
+
+      const validation = validateImageBuffer(buffer)
+      if (!validation.valid || !validation.extension) {
+        return {
+          success: false,
+          error: `O arquivo "${file.name}" não é uma imagem PNG ou WebP válida. Arquivos corrompidos ou com formatos não permitidos são rejeitados.`,
+        }
+      }
+
+      const fileExt = validation.extension
+      const sanitizedName = `${Date.now()}_${slug}_frame_${i + 1}.${fileExt}`
       const filePath = `frames/${sanitizedName}`
 
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('frames')
-        .upload(filePath, fileBuffer, {
-          contentType: file.type || 'image/png',
+        .upload(filePath, buffer, {
+          contentType: fileExt === 'png' ? 'image/png' : 'image/webp',
           upsert: true,
         })
 
@@ -619,13 +680,21 @@ export async function recordCampaignLeadAndDownload(input: RecordLeadInput): Pro
     return { success: false, error: 'ID da campanha não informado.' }
   }
 
-  const cleanValue = (contactValue || '').trim()
+  const cleanValue = (contactValue || '')
+    .trim()
+    .replace(/[<>'"`\\]/g, '')
+    .slice(0, 150)
+
   if (!cleanValue) {
     return {
       success: false,
       error: `Por favor, informe seu ${contactType === 'whatsapp' ? 'WhatsApp (telefone)' : 'e-mail'}.`,
     }
   }
+
+  const cleanName = userName
+    ? userName.trim().replace(/[<>'"`\\]/g, '').slice(0, 100)
+    : null
 
   try {
     const supabase = await createClient()
@@ -635,7 +704,7 @@ export async function recordCampaignLeadAndDownload(input: RecordLeadInput): Pro
       p_campaign_id: campaignId,
       p_contact_type: contactType,
       p_contact_value: cleanValue,
-      p_user_name: userName ? userName.trim() : undefined,
+      p_user_name: cleanName || undefined,
     })
 
     if (!rpcError && rpcData) {
@@ -651,7 +720,7 @@ export async function recordCampaignLeadAndDownload(input: RecordLeadInput): Pro
         campaign_id: campaignId,
         contact_type: contactType,
         contact_value: cleanValue,
-        user_name: userName ? userName.trim() : null,
+        user_name: cleanName,
       })
       .select('id')
       .single()

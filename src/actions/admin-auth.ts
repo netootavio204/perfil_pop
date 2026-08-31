@@ -38,23 +38,6 @@ export async function getAdminSessionPayload(): Promise<SessionPayload | null> {
     }
   }
 
-  // 2. Legacy fallback support for previously established base64 sessions
-  try {
-    if (sessionToken.startsWith('session_')) {
-      return {
-        id: 'master-admin',
-        email: expectedMasterEmail,
-        name: 'Administrador Master',
-        role: 'admin',
-        is_master_admin: true,
-        can_access_master_admin: true,
-        plan: 'unlimited',
-      }
-    }
-  } catch {
-    // Ignore legacy decoding error
-  }
-
   return null
 }
 
@@ -64,6 +47,56 @@ export async function getAdminSessionPayload(): Promise<SessionPayload | null> {
 export async function verifyAdminSession(): Promise<boolean> {
   const session = await getAdminSessionPayload()
   return session !== null
+}
+
+// In-memory rate limiting against brute-force login attacks
+interface LoginAttemptRecord {
+  count: number
+  lockoutUntil: number
+}
+
+const loginAttemptsMap = new Map<string, LoginAttemptRecord>()
+const MAX_LOGIN_ATTEMPTS = 5
+const LOCKOUT_PERIOD_MS = 15 * 60 * 1000 // 15 minutes lockout
+
+function checkRateLimit(email: string): { blocked: boolean; error?: string } {
+  const record = loginAttemptsMap.get(email)
+  if (!record) return { blocked: false }
+
+  const now = Date.now()
+  if (record.lockoutUntil > now) {
+    const minutesLeft = Math.max(1, Math.ceil((record.lockoutUntil - now) / 60000))
+    return {
+      blocked: true,
+      error: `Muitas tentativas incorretas. Conta bloqueada temporariamente por mais ${minutesLeft} minuto(s).`,
+    }
+  }
+
+  // If lockout expired, reset
+  if (record.lockoutUntil > 0 && record.lockoutUntil <= now) {
+    loginAttemptsMap.delete(email)
+  }
+
+  return { blocked: false }
+}
+
+function recordFailedLogin(email: string): string {
+  const now = Date.now()
+  const record = loginAttemptsMap.get(email) || { count: 0, lockoutUntil: 0 }
+  const newCount = record.count + 1
+
+  if (newCount >= MAX_LOGIN_ATTEMPTS) {
+    loginAttemptsMap.set(email, { count: newCount, lockoutUntil: now + LOCKOUT_PERIOD_MS })
+    return 'Muitas tentativas incorretas. Por segurança, sua conta foi temporariamente bloqueada por 15 minutos.'
+  }
+
+  loginAttemptsMap.set(email, { count: newCount, lockoutUntil: 0 })
+  const remaining = MAX_LOGIN_ATTEMPTS - newCount
+  return `E-mail ou senha incorretos. (${remaining} tentativa(s) restante(s) antes do bloqueio temporário).`
+}
+
+function recordSuccessfulLogin(email: string) {
+  loginAttemptsMap.delete(email)
 }
 
 /**
@@ -82,6 +115,12 @@ export async function loginAdmin(email: string, password: string) {
     return { success: false, error: 'Por favor, informe sua senha.' }
   }
 
+  // Check rate limiting / lockout
+  const rateLimitCheck = checkRateLimit(cleanEmail)
+  if (rateLimitCheck.blocked) {
+    return { success: false, error: rateLimitCheck.error }
+  }
+
   const expectedMasterEmail = (process.env.ADMIN_EMAIL || DEFAULT_EMAIL).trim().toLowerCase()
   const expectedMasterPassword = (process.env.ADMIN_PASSWORD || DEFAULT_PASSWORD).trim()
   const isMasterUser = cleanEmail === expectedMasterEmail
@@ -89,6 +128,7 @@ export async function loginAdmin(email: string, password: string) {
   // 1. FAST-PATH: Master admin credentials match immediately!
   // Zero database latency, instant 0ms access on first click
   if (isMasterUser && cleanPassword === expectedMasterPassword) {
+    recordSuccessfulLogin(cleanEmail)
     const sessionPayload: SessionPayload = {
       id: 'master-admin',
       name: 'Administrador Master',
@@ -144,6 +184,7 @@ export async function loginAdmin(email: string, password: string) {
 
       const isPasswordValid = verifyPassword(cleanPassword, dbUser.password_hash, dbUser.password_salt)
       if (isPasswordValid) {
+        recordSuccessfulLogin(cleanEmail)
         const canAccessMaster = isMasterUser || Boolean(dbUser.can_access_master_admin)
         const userPlan = isMasterUser ? 'unlimited' : (dbUser.plan || 'free')
 
@@ -182,6 +223,7 @@ export async function loginAdmin(email: string, password: string) {
 
   // 3. Fallback check for master user if password was not matched previously
   if (isMasterUser && cleanPassword === expectedMasterPassword) {
+    recordSuccessfulLogin(cleanEmail)
     const sessionPayload: SessionPayload = {
       id: 'master-admin',
       name: 'Administrador Master',
@@ -211,7 +253,8 @@ export async function loginAdmin(email: string, password: string) {
     return { success: true, user: sessionPayload, token }
   }
 
-  return { success: false, error: 'E-mail ou senha incorretos.' }
+  const failureMessage = recordFailedLogin(cleanEmail)
+  return { success: false, error: failureMessage }
 }
 
 /**
