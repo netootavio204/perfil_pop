@@ -206,11 +206,11 @@ export function CanvasEditor({
       // Natural 1:1 or 4:5 match
       ctx.drawImage(frame, 0, 0, canvasWidth, canvasHeight)
     } else {
-      // Proportional fit: preserve graphics, logos and numbers without distortion
+      // Proportional fit: anchor to the bottom (base do quadro) so banners/badges sit flush at the base
       const drawWidth = Math.min(canvasWidth, canvasHeight * frameRatio)
       const drawHeight = drawWidth / frameRatio
       const offsetX = (canvasWidth - drawWidth) / 2
-      const offsetY = (canvasHeight - drawHeight) / 2
+      const offsetY = canvasHeight - drawHeight
       ctx.drawImage(frame, offsetX, offsetY, drawWidth, drawHeight)
     }
 

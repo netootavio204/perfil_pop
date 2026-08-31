@@ -313,7 +313,7 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
                 <img
                   src={campaign.frame_url}
                   alt={campaign.title}
-                  className="relative z-10 w-full h-full object-contain pointer-events-none select-none"
+                  className="relative z-10 w-full h-full object-contain object-bottom pointer-events-none select-none"
                 />
               </div>
 
