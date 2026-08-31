@@ -27,6 +27,8 @@ export async function generateMetadata({ params }: CampaignPageProps): Promise<M
       }
     }
 
+    const primaryFrame = campaign.frame_url ? campaign.frame_url.split('|||')[0] : ''
+
     return {
       title: `${campaign.title} | PerfilPop`,
       description: `Participe da campanha "${campaign.title}" e personalize sua foto de perfil agora mesmo no PerfilPop.`,
@@ -35,7 +37,7 @@ export async function generateMetadata({ params }: CampaignPageProps): Promise<M
         description: `Adicione o avatar oficial da campanha "${campaign.title}" à sua foto.`,
         images: [
           {
-            url: campaign.frame_url,
+            url: primaryFrame,
             width: 1080,
             height: 1080,
             alt: campaign.title,
@@ -46,7 +48,7 @@ export async function generateMetadata({ params }: CampaignPageProps): Promise<M
         card: 'summary_large_image',
         title: campaign.title,
         description: `Adicione o avatar oficial da campanha "${campaign.title}" à sua foto.`,
-        images: [campaign.frame_url],
+        images: [primaryFrame],
       },
     }
   } catch {

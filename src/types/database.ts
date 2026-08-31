@@ -174,5 +174,31 @@ export type AdminUser = Database['public']['Tables']['admin_users']['Row']
 export type AdminUserInsert = Database['public']['Tables']['admin_users']['Insert']
 export type AdminUserUpdate = Database['public']['Tables']['admin_users']['Update']
 
+/**
+ * Universal helper to extract all available frame URLs from a campaign,
+ * supporting both JSON 'frames' and multi-URL serialization in 'frame_url'.
+ */
+export function getCampaignFrames(campaign?: { frame_url?: string | null; frames?: string[] | null } | null): string[] {
+  if (!campaign) return []
+  if (campaign.frames && Array.isArray(campaign.frames) && campaign.frames.length > 0) {
+    return campaign.frames.filter(Boolean)
+  }
+  if (campaign.frame_url) {
+    if (campaign.frame_url.includes('|||')) {
+      return campaign.frame_url.split('|||').map((s) => s.trim()).filter(Boolean)
+    }
+    return [campaign.frame_url]
+  }
+  return []
+}
+
+/**
+ * Universal helper to get the primary frame URL for previews, OpenGraph, and showcase thumbnails.
+ */
+export function getPrimaryFrameUrl(campaign?: { frame_url?: string | null; frames?: string[] | null } | null): string {
+  const frames = getCampaignFrames(campaign)
+  return frames[0] || (campaign?.frame_url ? campaign.frame_url.split('|||')[0] : '')
+}
+
 // Safe public/admin representation without exposing password hashes
 export type SafeAdminUser = Omit<AdminUser, 'password_hash' | 'password_salt'>

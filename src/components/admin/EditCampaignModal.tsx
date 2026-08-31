@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { updateCampaign } from '@/actions/campaigns'
-import { Campaign, CampaignFormat } from '@/types/database'
+import { Campaign, CampaignFormat, getCampaignFrames } from '@/types/database'
 import {
   X,
   Edit3,
@@ -88,10 +88,7 @@ export function EditCampaignModal({
       setSlug(campaign.slug)
       setFormat(campaign.format || '1:1')
 
-      const frames =
-        campaign.frames && Array.isArray(campaign.frames) && campaign.frames.length > 0
-          ? campaign.frames
-          : [campaign.frame_url]
+      const frames = getCampaignFrames(campaign)
 
       setExistingFrames(frames)
       setNewFiles([])

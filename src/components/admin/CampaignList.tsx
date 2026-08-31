@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { deleteCampaign } from '@/actions/campaigns'
-import { Campaign } from '@/types/database'
+import { Campaign, getCampaignFrames, getPrimaryFrameUrl } from '@/types/database'
 import { CampaignLeadsModal } from '@/components/admin/CampaignLeadsModal'
 import { EditCampaignModal } from '@/components/admin/EditCampaignModal'
 import {
@@ -315,7 +315,7 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
                       />
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={camp.frame_url}
+                        src={getPrimaryFrameUrl(camp)}
                         alt={camp.title}
                         className="relative z-10 w-full h-full object-contain"
                       />
@@ -328,6 +328,11 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
                           {camp.title}
                         </h4>
                         {renderFormatBadge(camp.format)}
+                        {getCampaignFrames(camp).length > 1 && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                            {getCampaignFrames(camp).length} opções
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-1 text-xs text-indigo-400 font-mono truncate">

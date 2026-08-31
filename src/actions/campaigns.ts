@@ -3,7 +3,14 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getAdminSessionPayload } from './admin-auth'
-import { CampaignFormat, Campaign, CampaignLead, LeadContactType } from '@/types/database'
+import {
+  CampaignFormat,
+  Campaign,
+  CampaignLead,
+  LeadContactType,
+  getCampaignFrames,
+  getPrimaryFrameUrl,
+} from '@/types/database'
 
 export type CreateCampaignState = {
   success: boolean
@@ -163,15 +170,16 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
     }
 
     const primaryFrameUrl = uploadedFrameUrls[0]
+    const serializedFrames = uploadedFrameUrls.join('|||')
 
-    // 4. Attempt insert with frames array and primary frame_url
+    // 4. Attempt insert with frames array and serialized frame_url
     let newCampaign: any = null
     const { data: fullData, error: insertError } = await supabase
       .from('campaigns')
       .insert({
         title,
         slug,
-        frame_url: primaryFrameUrl,
+        frame_url: serializedFrames,
         frames: uploadedFrameUrls,
         format: selectedFormat,
         user_id: finalUserId,
@@ -186,13 +194,13 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
     if (insertError) {
       console.warn('First insert attempt notice (falling back without frames column):', insertError.message)
 
-      // Fallback: Insert with standard fields (without frames column if not yet migrated)
+      // Fallback: Insert with standard fields saving all frames in frame_url
       const { data: fallbackData1, error: fallbackError1 } = await supabase
         .from('campaigns')
         .insert({
           title,
           slug,
-          frame_url: primaryFrameUrl,
+          frame_url: serializedFrames,
           format: selectedFormat,
           user_id: finalUserId,
           user_email: finalUserEmail,
@@ -386,10 +394,8 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
     let currentFrames: string[] = []
     if (rawExistingFrames && rawExistingFrames.length > 0) {
       currentFrames = rawExistingFrames.filter(Boolean)
-    } else if (existing.frames && Array.isArray(existing.frames) && existing.frames.length > 0) {
-      currentFrames = existing.frames
-    } else if (existing.frame_url) {
-      currentFrames = [existing.frame_url]
+    } else {
+      currentFrames = getCampaignFrames(existing)
     }
 
     // Upload newly provided frame files
@@ -419,7 +425,7 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
       return { success: false, error: 'A campanha deve ter pelo menos uma moldura ativa.' }
     }
 
-    const updatedFrameUrl = currentFrames[0]
+    const serializedFrames = currentFrames.join('|||')
 
     // 4. Update campaign record
     let updated: any = null
@@ -429,7 +435,7 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
         title,
         slug,
         format: selectedFormat,
-        frame_url: updatedFrameUrl,
+        frame_url: serializedFrames,
         frames: currentFrames,
       } as any)
       .eq('id', campaignId)
@@ -437,14 +443,14 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
       .single()
 
     if (updateError) {
-      // Fallback: update without frames column if not yet present in schema
+      // Fallback: update without frames column saving all frames inside frame_url
       const { data: fallbackUpdate, error: fallbackErr } = await supabase
         .from('campaigns')
         .update({
           title,
           slug,
           format: selectedFormat,
-          frame_url: updatedFrameUrl,
+          frame_url: serializedFrames,
         } as any)
         .eq('id', campaignId)
         .select()
@@ -504,16 +510,19 @@ export async function deleteCampaign(id: string, frameUrl?: string) {
       }
     }
 
-    // If frameUrl is provided, extract file name and remove from storage
+    // If frameUrl is provided, extract file names and remove from storage
     if (frameUrl) {
-      try {
-        const parts = frameUrl.split('/frames/')
-        if (parts.length > 1) {
-          const filePath = decodeURIComponent(parts[1])
-          await supabase.storage.from('frames').remove([filePath])
+      const allUrls = frameUrl.includes('|||') ? frameUrl.split('|||') : [frameUrl]
+      for (const singleUrl of allUrls) {
+        try {
+          const parts = singleUrl.split('/frames/')
+          if (parts.length > 1) {
+            const filePath = decodeURIComponent(parts[1])
+            await supabase.storage.from('frames').remove([filePath])
+          }
+        } catch (storageErr) {
+          console.warn('Could not remove file from storage:', storageErr)
         }
-      } catch (storageErr) {
-        console.warn('Could not remove file from storage:', storageErr)
       }
     }
 

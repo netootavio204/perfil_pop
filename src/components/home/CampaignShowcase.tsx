@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Campaign, CampaignFormat } from '@/types/database'
+import { Campaign, CampaignFormat, getPrimaryFrameUrl } from '@/types/database'
 import { getPublicCampaigns } from '@/actions/campaigns'
 import {
   Sparkles,
@@ -158,7 +158,7 @@ export function CampaignShowcase({ initialCampaigns = [] }: CampaignShowcaseProp
 
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={camp.frame_url}
+                    src={getPrimaryFrameUrl(camp)}
                     alt={camp.title}
                     className="relative z-10 w-full h-full object-contain pointer-events-none select-none p-2"
                   />

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Campaign, CampaignFormat } from '@/types/database'
+import { Campaign, CampaignFormat, getCampaignFrames } from '@/types/database'
 import { CanvasEditor } from '@/components/campaign/CanvasEditor'
 import { incrementCampaignView } from '@/actions/campaigns'
 import {
@@ -34,12 +34,9 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Multi-frame support with 100% backward compatibility for single-frame campaigns
-  const availableFrames: string[] =
-    campaign.frames && Array.isArray(campaign.frames) && campaign.frames.length > 0
-      ? campaign.frames
-      : [campaign.frame_url]
+  const availableFrames: string[] = getCampaignFrames(campaign)
 
-  const [selectedFrameUrl, setSelectedFrameUrl] = useState<string>(availableFrames[0])
+  const [selectedFrameUrl, setSelectedFrameUrl] = useState<string>(availableFrames[0] || '')
 
   useEffect(() => {
     if (availableFrames.length > 0 && !availableFrames.includes(selectedFrameUrl)) {
