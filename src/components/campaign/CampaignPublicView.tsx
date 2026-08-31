@@ -16,6 +16,9 @@ import {
   Ratio,
   Eye,
   Camera,
+  Square,
+  Circle,
+  Smartphone,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Logo } from '@/components/ui/Logo'
@@ -26,6 +29,7 @@ interface CampaignPublicViewProps {
 
 export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
   const [userPhoto, setUserPhoto] = useState<File | null>(null)
+  const [currentFormat, setCurrentFormat] = useState<CampaignFormat>(campaign.format || '1:1')
   const [copied, setCopied] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -104,28 +108,30 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
     }
   }
 
-  const format: CampaignFormat = campaign.format || '1:1'
-
-  const formatLabels: Record<CampaignFormat, { name: string; tag: string; desc: string }> = {
+  const formatLabels: Record<CampaignFormat, { name: string; tag: string; desc: string; icon: any }> = {
     '1:1': {
       name: 'Quadrado (1:1)',
       tag: 'Feed / Post',
       desc: 'Ideal para posts no Instagram, Facebook e redes sociais.',
-    },
-    '4:5': {
-      name: 'Retrato (4:5)',
-      tag: 'Feed / Stories',
-      desc: 'Proporção vertical 1080×1350px (4:5) ideal para feed do Instagram e redes sociais.',
-    },
-    '3:4': {
-      name: 'Retrato (4:5)',
-      tag: 'Feed / Stories',
-      desc: 'Proporção vertical 1080×1350px (4:5) ideal para feed do Instagram e redes sociais.',
+      icon: Square,
     },
     'circle': {
       name: 'Circular (Avatar)',
       tag: 'Foto de Perfil',
       desc: 'Máscara redonda para fotos de perfil do WhatsApp, Instagram e Twitter.',
+      icon: Circle,
+    },
+    '4:5': {
+      name: 'Retrato (4:5)',
+      tag: 'Feed / Stories',
+      desc: 'Proporção vertical 1080×1350px (4:5) ideal para feed do Instagram e redes sociais.',
+      icon: Smartphone,
+    },
+    '3:4': {
+      name: 'Retrato (4:5)',
+      tag: 'Feed / Stories',
+      desc: 'Proporção vertical 1080×1350px (4:5) ideal para feed do Instagram e redes sociais.',
+      icon: Smartphone,
     },
   }
 
@@ -172,7 +178,7 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
       {/* Main Campaign Container */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10">
         {/* Campaign Title & Meta Header */}
-        <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-10">
+        <div className="text-center max-w-2xl mx-auto mb-6 sm:mb-8">
           <div className="inline-flex flex-wrap items-center justify-center gap-2 mb-4">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-400 text-xs font-medium">
               <Sparkles className="w-3.5 h-3.5" />
@@ -181,7 +187,7 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
 
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-slate-800 bg-slate-900/80 text-slate-300 text-xs font-medium">
               <Ratio className="w-3 h-3 text-indigo-400" />
-              <span>{formatLabels[format]?.name || '1:1'}</span>
+              <span>{formatLabels[currentFormat]?.name || '1:1'}</span>
             </div>
           </div>
 
@@ -191,9 +197,63 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
 
           <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto">
             {userPhoto
-              ? 'Ajuste sua foto na moldura (zoom, arrastar, rotacionar) e baixe sua imagem finalizada em alta qualidade.'
-              : formatLabels[format]?.desc || 'Adicione a moldura oficial à sua foto e apoie este movimento nas redes sociais.'}
+              ? 'Ajuste sua foto na moldura (zoom, arrastar, rotacionar) e baixe seu avatar finalizado em alta qualidade.'
+              : 'Escolha o formato desejado para o seu avatar e selecione sua foto para aplicar a moldura oficial.'}
           </p>
+        </div>
+
+        {/* Format Selector Bar for End-User */}
+        <div className="max-w-lg mx-auto mb-8">
+          <div className="flex items-center justify-between px-1 mb-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <Ratio className="w-3.5 h-3.5 text-indigo-400" />
+              Formato do seu Avatar:
+            </span>
+            <span className="text-[11px] text-indigo-400 font-medium">
+              {formatLabels[currentFormat]?.tag}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 p-1.5 rounded-2xl bg-slate-950/80 border border-slate-800 shadow-xl backdrop-blur-xl">
+            <button
+              type="button"
+              onClick={() => setCurrentFormat('1:1')}
+              className={`flex flex-col sm:flex-row items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentFormat === '1:1'
+                  ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/30 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+            >
+              <Square className="w-3.5 h-3.5 shrink-0 text-indigo-300" />
+              <span className="truncate">1:1 Quadrado</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCurrentFormat('circle')}
+              className={`flex flex-col sm:flex-row items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentFormat === 'circle'
+                  ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/30 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+            >
+              <Circle className="w-3.5 h-3.5 shrink-0 text-purple-300" />
+              <span className="truncate">Circular</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCurrentFormat('4:5')}
+              className={`flex flex-col sm:flex-row items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentFormat === '4:5' || currentFormat === '3:4'
+                  ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/30 ring-1 ring-white/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+            >
+              <Smartphone className="w-3.5 h-3.5 shrink-0 text-pink-300" />
+              <span className="truncate">4:5 Retrato</span>
+            </button>
+          </div>
         </div>
 
         {userPhoto ? (
@@ -204,7 +264,8 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
             campaignTitle={campaign.title}
             campaignSlug={campaign.slug}
             campaignId={campaign.id}
-            format={format}
+            format={currentFormat}
+            onFormatChange={setCurrentFormat}
             onResetPhoto={removePhoto}
           />
         ) : (
@@ -217,19 +278,19 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
                   <ImageIcon className="w-3.5 h-3.5 text-indigo-400" />
                   Moldura Oficial
                 </span>
-                <span className="text-[11px] px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-medium">
-                  {formatLabels[format]?.tag}
+                <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-medium">
+                  {formatLabels[currentFormat]?.tag}
                 </span>
               </div>
 
               {/* Format-Adaptive Frame Viewer with Checkerboard */}
               <div
-                className={`relative w-full overflow-hidden border border-slate-800 shadow-inner bg-slate-950 flex items-center justify-center ${
-                  format === '4:5' || format === '3:4'
-                    ? 'max-w-[280px] aspect-[4/5] rounded-2xl'
-                    : format === 'circle'
-                    ? 'max-w-[300px] aspect-square rounded-full border-2 border-indigo-500/40 shadow-indigo-500/10'
-                    : 'max-w-[320px] aspect-square rounded-2xl'
+                className={`relative w-full overflow-hidden border shadow-inner bg-slate-950 flex items-center justify-center transition-all duration-300 ${
+                  currentFormat === '4:5' || currentFormat === '3:4'
+                    ? 'max-w-[280px] aspect-[4/5] rounded-2xl border-slate-800'
+                    : currentFormat === 'circle'
+                    ? 'max-w-[300px] aspect-square rounded-full border-2 border-indigo-500/50 shadow-xl shadow-indigo-500/20 ring-4 ring-indigo-500/10'
+                    : 'max-w-[320px] aspect-square rounded-2xl border-slate-800'
                 }`}
               >
                 {/* Checkerboard background for transparency */}
@@ -262,7 +323,7 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
                   Alta Resolução HD
                 </span>
                 <span className="font-mono text-slate-500">
-                  {format === '4:5' || format === '3:4' ? '1080 × 1350' : '1080 × 1080'}
+                  {currentFormat === '4:5' || currentFormat === '3:4' ? '1080 × 1350' : '1080 × 1080'}
                 </span>
               </div>
             </div>

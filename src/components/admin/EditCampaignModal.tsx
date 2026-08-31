@@ -380,9 +380,12 @@ export function EditCampaignModal({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                  Formato da Moldura
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1">
+                  Formato Padrão Sugerido
                 </label>
+                <p className="text-[11px] text-slate-400 mb-2">
+                  Proporção inicial da campanha (o apoiador pode alternar entre Quadrado, Circular ou Retrato).
+                </p>
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"

@@ -540,9 +540,12 @@ export function CreateCampaignForm({
 
               {/* Format Selector */}
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-                  Formato da Moldura <span className="text-indigo-400">*</span>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1">
+                  Formato Padrão Sugerido <span className="text-indigo-400">*</span>
                 </label>
+                <p className="text-[11px] text-slate-400 mb-2.5">
+                  Define a proporção inicial da campanha. O usuário final poderá alternar livremente entre Quadrado, Circular ou Retrato na página pública.
+                </p>
                 <div className="grid grid-cols-3 gap-2.5">
                   <button
                     type="button"

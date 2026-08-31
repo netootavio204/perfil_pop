@@ -20,6 +20,10 @@ import {
   Maximize2,
   Minimize2,
   Crosshair,
+  Ratio,
+  Square,
+  Circle,
+  Smartphone,
 } from 'lucide-react'
 
 interface CanvasEditorProps {
@@ -29,6 +33,7 @@ interface CanvasEditorProps {
   campaignSlug?: string
   campaignId?: string
   format?: CampaignFormat
+  onFormatChange?: (format: CampaignFormat) => void
   onResetPhoto: () => void
 }
 
@@ -38,15 +43,29 @@ export function CanvasEditor({
   campaignTitle,
   campaignSlug = 'campanha',
   campaignId,
-  format = '1:1',
+  format: initialFormat = '1:1',
+  onFormatChange,
   onResetPhoto,
 }: CanvasEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Dynamic canvas dimensions based on campaign format
+  // Dynamic active format chosen by end user
+  const [activeFormat, setActiveFormat] = useState<CampaignFormat>(initialFormat)
+
+  // Synchronize when parent format changes
+  useEffect(() => {
+    setActiveFormat(initialFormat)
+  }, [initialFormat])
+
+  const handleFormatChange = (newFormat: CampaignFormat) => {
+    setActiveFormat(newFormat)
+    onFormatChange?.(newFormat)
+  }
+
+  // Dynamic canvas dimensions based on chosen format
   const canvasWidth = 1080
-  const canvasHeight = (format === '4:5' || format === '3:4') ? 1350 : 1080
+  const canvasHeight = (activeFormat === '4:5' || activeFormat === '3:4') ? 1350 : 1080
 
   // State of transformations
   const [scale, setScale] = useState(1)
@@ -99,8 +118,8 @@ export function CanvasEditor({
         frameImgRef.current = frameImg
 
         // Compute initial scale to cover canvas optimally
-        const scaleX = canvasWidth / userImg.naturalWidth
-        const scaleY = canvasHeight / userImg.naturalHeight
+        const scaleX = 1080 / userImg.naturalWidth
+        const scaleY = 1080 / userImg.naturalHeight
         const initialScale = Math.max(scaleX, scaleY, 1)
 
         setScale(initialScale)
@@ -135,7 +154,7 @@ export function CanvasEditor({
       isCancelled = true
       URL.revokeObjectURL(userPhotoUrl)
     }
-  }, [frameUrl, userPhotoFile, canvasWidth, canvasHeight])
+  }, [frameUrl, userPhotoFile])
 
   // 2. High-Performance 60 FPS Canvas Render Loop
   const renderCanvas = useCallback(() => {
@@ -155,8 +174,8 @@ export function CanvasEditor({
     // Save global state
     ctx.save()
 
-    // If format is circle, apply smooth anti-aliased circular clip mask
-    if (format === 'circle') {
+    // If active format is circle, apply smooth anti-aliased circular clip mask
+    if (activeFormat === 'circle') {
       ctx.beginPath()
       ctx.arc(canvasWidth / 2, canvasHeight / 2, canvasWidth / 2, 0, Math.PI * 2)
       ctx.closePath()
@@ -179,11 +198,25 @@ export function CanvasEditor({
     ctx.restore()
 
     // --- LAYER 2: Campaign Official Frame ---
-    ctx.drawImage(frameImgRef.current, 0, 0, canvasWidth, canvasHeight)
+    const frame = frameImgRef.current
+    const frameRatio = frame.naturalWidth / frame.naturalHeight
+    const canvasRatio = canvasWidth / canvasHeight
+
+    if (Math.abs(frameRatio - canvasRatio) < 0.05) {
+      // Natural 1:1 or 4:5 match
+      ctx.drawImage(frame, 0, 0, canvasWidth, canvasHeight)
+    } else {
+      // Proportional fit: preserve graphics, logos and numbers without distortion
+      const drawWidth = Math.min(canvasWidth, canvasHeight * frameRatio)
+      const drawHeight = drawWidth / frameRatio
+      const offsetX = (canvasWidth - drawWidth) / 2
+      const offsetY = (canvasHeight - drawHeight) / 2
+      ctx.drawImage(frame, offsetX, offsetY, drawWidth, drawHeight)
+    }
 
     // Restore global state
     ctx.restore()
-  }, [imagesLoaded, position, scale, rotation, flipH, canvasWidth, canvasHeight, format])
+  }, [imagesLoaded, position, scale, rotation, flipH, canvasWidth, canvasHeight, activeFormat])
 
   // Synchronize rendering with requestAnimationFrame
   useEffect(() => {
@@ -387,7 +420,14 @@ export function CanvasEditor({
             .toLowerCase()
             .replace(/[^a-z0-9_-]/gi, '_')
 
-          link.download = `foto_${safeSlug}_${Date.now()}.png`
+          const formatTag =
+            activeFormat === 'circle'
+              ? 'circular'
+              : activeFormat === '4:5' || activeFormat === '3:4'
+              ? 'retrato_4x5'
+              : 'quadrado_1x1'
+
+          link.download = `avatar_${safeSlug}_${formatTag}_${Date.now()}.png`
           link.href = blobUrl
           document.body.appendChild(link)
           link.click()
@@ -435,11 +475,11 @@ export function CanvasEditor({
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handlePointerUp}
-            className={`relative w-full overflow-hidden border-2 shadow-2xl transition-colors select-none touch-none ${
-              format === '4:5' || format === '3:4'
+            className={`relative w-full overflow-hidden border-2 shadow-2xl transition-all duration-300 select-none touch-none ${
+              activeFormat === '4:5' || activeFormat === '3:4'
                 ? 'max-w-[340px] aspect-[4/5] rounded-3xl'
-                : format === 'circle'
-                ? 'max-w-[380px] aspect-square rounded-full border-indigo-500/40 shadow-indigo-500/20'
+                : activeFormat === 'circle'
+                ? 'max-w-[380px] aspect-square rounded-full border-indigo-500/50 shadow-indigo-500/25 ring-4 ring-indigo-500/10'
                 : 'max-w-[400px] aspect-square rounded-3xl'
             } ${
               isDragging
@@ -527,6 +567,63 @@ export function CanvasEditor({
                 <RefreshCcw className="w-3 h-3" />
                 <span>Redefinir</span>
               </button>
+            </div>
+
+            {/* Avatar Format Selector inside Editor */}
+            <div className="space-y-2 pb-4 border-b border-slate-800">
+              <div className="flex items-center justify-between text-xs">
+                <label className="font-medium text-slate-300 flex items-center gap-1.5">
+                  <Ratio className="w-3.5 h-3.5 text-indigo-400" />
+                  Formato do Avatar
+                </label>
+                <span className="text-[11px] text-indigo-400 font-medium">
+                  {activeFormat === 'circle' ? 'Foto de Perfil' : activeFormat === '4:5' || activeFormat === '3:4' ? '1080×1350' : '1080×1080'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => handleFormatChange('1:1')}
+                  className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeFormat === '1:1'
+                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm ring-1 ring-white/20'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                  title="Quadrado 1:1 (Feed e Posts)"
+                >
+                  <Square className="w-3.5 h-3.5 shrink-0 text-indigo-300" />
+                  <span className="truncate">1:1</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleFormatChange('circle')}
+                  className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeFormat === 'circle'
+                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm ring-1 ring-white/20'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                  title="Circular (Perfil WhatsApp / Instagram)"
+                >
+                  <Circle className="w-3.5 h-3.5 shrink-0 text-purple-300" />
+                  <span className="truncate">Circular</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleFormatChange('4:5')}
+                  className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeFormat === '4:5' || activeFormat === '3:4'
+                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-sm ring-1 ring-white/20'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                  }`}
+                  title="Retrato 4:5 (Feed vertical / Stories)"
+                >
+                  <Smartphone className="w-3.5 h-3.5 shrink-0 text-pink-300" />
+                  <span className="truncate">4:5</span>
+                </button>
+              </div>
             </div>
 
             {/* 1. Zoom Control */}
