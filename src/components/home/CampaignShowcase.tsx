@@ -115,6 +115,7 @@ export function CampaignShowcase({ initialCampaigns = [] }: CampaignShowcaseProp
           </p>
           <Link
             href="/admin"
+            prefetch={false}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-xs text-white bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-600/30 transition-all"
           >
             <span>Criar Minha Campanha</span>

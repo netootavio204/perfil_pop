@@ -31,35 +31,54 @@ export function AdminLoginForm({ initialError }: { initialError?: string }) {
     setError(null)
     setSuccessMessage(null)
 
-    if (!email.trim()) {
+    // Capture values directly from DOM elements / FormData to guarantee autofilled values are captured immediately
+    const formElement = e.currentTarget
+    const formData = new FormData(formElement)
+    const submittedEmail = ((formData.get('email') as string) || email).trim()
+    const submittedPassword = ((formData.get('password') as string) || password).trim()
+
+    if (!submittedEmail) {
       setError('Por favor, informe seu e-mail de acesso.')
       return
     }
 
-    if (!password) {
+    if (!submittedPassword) {
       setError('Por favor, informe sua senha de acesso.')
       return
     }
 
     setLoading(true)
 
+    // Safety timeout to ensure button never stays permanently disabled if network hangs
+    const safetyTimer = setTimeout(() => {
+      setLoading(false)
+    }, 9000)
+
     try {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ email: submittedEmail, password: submittedPassword }),
         credentials: 'include',
       })
 
+      clearTimeout(safetyTimer)
       const data = await res.json().catch(() => ({}))
 
       if (res.ok && data.success) {
-        window.location.href = '/admin'
+        // Immediate redirection: replace history and trigger direct navigation
+        window.location.replace('/admin')
+
+        // Fallback for browsers that do not trigger full document reload when URL is identical
+        setTimeout(() => {
+          window.location.reload()
+        }, 150)
       } else {
         setError(data.error || 'E-mail ou senha incorretos. Tente novamente.')
         setLoading(false)
       }
     } catch (err: any) {
+      clearTimeout(safetyTimer)
       setError(err?.message || 'Erro ao autenticar. Tente novamente.')
       setLoading(false)
     }
@@ -124,7 +143,12 @@ export function AdminLoginForm({ initialError }: { initialError?: string }) {
 
         {/* Login Form */}
         {authMode === 'login' && (
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
+          <form
+            action="/api/admin/login"
+            method="POST"
+            onSubmit={handleLoginSubmit}
+            className="space-y-4"
+          >
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
                 E-mail de Acesso
@@ -193,7 +217,7 @@ export function AdminLoginForm({ initialError }: { initialError?: string }) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all shadow-lg shadow-pink-600/25 mt-2"
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-all shadow-lg shadow-pink-600/25 mt-2 touch-manipulation select-none"
             >
               {loading ? (
                 <span className="inline-flex items-center gap-2">

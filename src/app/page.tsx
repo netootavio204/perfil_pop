@@ -76,6 +76,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <Link
               href="/admin"
+              prefetch={false}
               className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-200 bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 rounded-xl shadow-sm transition-all hover:text-white"
             >
               <Lock className="w-4 h-4 text-indigo-400" />
@@ -83,6 +84,7 @@ export default function Home() {
             </Link>
             <Link
               href="/admin"
+              prefetch={false}
               className="hidden sm:inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded-xl shadow-lg shadow-indigo-500/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
               <span>Criar Campanha</span>
@@ -121,6 +123,7 @@ export default function Home() {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-md mx-auto mb-16">
             <Link
               href="/admin"
+              prefetch={false}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-4 text-base font-bold text-white bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded-2xl shadow-xl shadow-indigo-600/30 transition-all hover:scale-[1.03] active:scale-[0.98]"
             >
               <span>Começar Grátis Agora</span>
@@ -466,6 +469,7 @@ export default function Home() {
 
             <Link
               href="/admin"
+              prefetch={false}
               className="w-full inline-flex items-center justify-center gap-2 py-3.5 px-6 rounded-xl font-bold text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
               <span>Começar Grátis Agora</span>
@@ -566,7 +570,7 @@ export default function Home() {
             <a href="#como-funciona" className="hover:text-slate-300 transition-colors">Como Funciona</a>
             <a href="#formatos" className="hover:text-slate-300 transition-colors">Formatos</a>
             <a href="#planos" className="hover:text-slate-300 transition-colors">Planos</a>
-            <Link href="/admin" className="hover:text-indigo-400 transition-colors">Admin</Link>
+            <Link href="/admin" prefetch={false} className="hover:text-indigo-400 transition-colors">Admin</Link>
           </div>
 
           <p>© {new Date().getFullYear()} PerfilPop. Todos os direitos reservados.</p>

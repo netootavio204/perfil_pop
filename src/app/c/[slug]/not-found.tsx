@@ -28,6 +28,7 @@ export default function CampaignNotFound() {
 
           <Link
             href="/admin"
+            prefetch={false}
             className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-medium text-sm text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors"
           >
             <span>Painel Admin</span>

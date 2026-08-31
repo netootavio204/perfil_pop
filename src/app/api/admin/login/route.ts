@@ -51,5 +51,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+
   return response
 }

@@ -86,15 +86,56 @@ export async function loginAdmin(email: string, password: string) {
   const expectedMasterPassword = (process.env.ADMIN_PASSWORD || DEFAULT_PASSWORD).trim()
   const isMasterUser = cleanEmail === expectedMasterEmail
 
-  // 1. Attempt database authentication against `admin_users` table
+  // 1. FAST-PATH: Master admin credentials match immediately!
+  // Zero database latency, instant 0ms access on first click
+  if (isMasterUser && cleanPassword === expectedMasterPassword) {
+    const sessionPayload: SessionPayload = {
+      id: 'master-admin',
+      name: 'Administrador Master',
+      email: expectedMasterEmail,
+      role: 'admin',
+      is_master_admin: true,
+      can_access_master_admin: true,
+      plan: 'unlimited',
+    }
+
+    const token = createSessionToken(sessionPayload)
+    try {
+      const cookieStore = await cookies()
+      cookieStore.set(ADMIN_SESSION_COOKIE, token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 7,
+        path: '/',
+      })
+    } catch {
+      // Ignore if invoked in a context where cookies cannot be directly set
+    }
+
+    try {
+      revalidatePath('/admin')
+    } catch {}
+
+    return { success: true, user: sessionPayload, token }
+  }
+
+  // 2. Database authentication against `admin_users` table with safety timeout
   try {
     const supabase = await createClient()
 
-    const { data: dbUser, error: dbError } = await supabase
+    // 3.5-second timeout guard to prevent database stalls from freezing login
+    const queryPromise = supabase
       .from('admin_users')
       .select('id, name, email, password_hash, password_salt, role, is_active, can_access_master_admin, plan')
       .eq('email', cleanEmail)
       .maybeSingle()
+
+    const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: { message: 'Database response timeout' } }), 3500)
+    )
+
+    const { data: dbUser, error: dbError } = await Promise.race([queryPromise, timeoutPromise])
 
     if (!dbError && dbUser) {
       if (!dbUser.is_active) {
@@ -117,16 +158,21 @@ export async function loginAdmin(email: string, password: string) {
         }
 
         const token = createSessionToken(sessionPayload)
-        const cookieStore = await cookies()
-        cookieStore.set(ADMIN_SESSION_COOKIE, token, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax',
-          maxAge: 60 * 60 * 24 * 7, // 7 days
-          path: '/',
-        })
+        try {
+          const cookieStore = await cookies()
+          cookieStore.set(ADMIN_SESSION_COOKIE, token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 60 * 60 * 24 * 7, // 7 days
+            path: '/',
+          })
+        } catch {}
 
-        revalidatePath('/admin')
+        try {
+          revalidatePath('/admin')
+        } catch {}
+
         return { success: true, user: sessionPayload, token }
       }
     }
@@ -134,7 +180,7 @@ export async function loginAdmin(email: string, password: string) {
     console.warn('[loginAdmin] Database check warning:', err)
   }
 
-  // 2. Master Fallback (Master admin from environment / defaults)
+  // 3. Fallback check for master user if password was not matched previously
   if (isMasterUser && cleanPassword === expectedMasterPassword) {
     const sessionPayload: SessionPayload = {
       id: 'master-admin',
@@ -147,16 +193,21 @@ export async function loginAdmin(email: string, password: string) {
     }
 
     const token = createSessionToken(sessionPayload)
-    const cookieStore = await cookies()
-    cookieStore.set(ADMIN_SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7,
-      path: '/',
-    })
+    try {
+      const cookieStore = await cookies()
+      cookieStore.set(ADMIN_SESSION_COOKIE, token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 7,
+        path: '/',
+      })
+    } catch {}
 
-    revalidatePath('/admin')
+    try {
+      revalidatePath('/admin')
+    } catch {}
+
     return { success: true, user: sessionPayload, token }
   }
 

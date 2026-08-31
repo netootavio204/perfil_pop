@@ -70,12 +70,30 @@ export function createSessionToken(payload: SessionPayload): string {
  * Verifies an HMAC signed session token and extracts the payload.
  */
 export function verifySessionToken(token: string): { valid: boolean; payload?: SessionPayload } {
-  if (!token || typeof token !== 'string' || !token.includes('.')) {
+  if (!token || typeof token !== 'string') {
+    return { valid: false }
+  }
+
+  let cleanToken = token.trim()
+  // Remove wrapping quotes if added by cookie parsers
+  if (cleanToken.startsWith('"') && cleanToken.endsWith('"')) {
+    cleanToken = cleanToken.slice(1, -1)
+  }
+  // Decode if URL encoded
+  if (cleanToken.includes('%')) {
+    try {
+      cleanToken = decodeURIComponent(cleanToken)
+    } catch {
+      // Ignore decode error
+    }
+  }
+
+  if (!cleanToken.includes('.')) {
     return { valid: false }
   }
 
   try {
-    const [base64Data, signature] = token.split('.')
+    const [base64Data, signature] = cleanToken.split('.')
     if (!base64Data || !signature) return { valid: false }
 
     const secret = getSigningSecret()

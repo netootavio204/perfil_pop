@@ -23,7 +23,7 @@ export function AdminHeader({ currentUser, onOpenNewUserModal }: AdminHeaderProp
 
   const handleLogout = async () => {
     await logoutAdmin()
-    router.refresh()
+    window.location.replace('/admin')
   }
 
   const isMaster = Boolean(currentUser?.is_master_admin || currentUser?.can_access_master_admin)
