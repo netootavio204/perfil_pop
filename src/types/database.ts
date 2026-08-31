@@ -20,6 +20,7 @@ export interface Database {
           title: string
           slug: string
           frame_url: string
+          frames?: string[] | null
           format: CampaignFormat
           user_id?: string | null
           user_email?: string | null
@@ -33,6 +34,7 @@ export interface Database {
           title: string
           slug: string
           frame_url: string
+          frames?: string[] | null
           format?: CampaignFormat
           user_id?: string | null
           user_email?: string | null
@@ -46,6 +48,7 @@ export interface Database {
           title?: string
           slug?: string
           frame_url?: string
+          frames?: string[] | null
           format?: CampaignFormat
           user_id?: string | null
           user_email?: string | null

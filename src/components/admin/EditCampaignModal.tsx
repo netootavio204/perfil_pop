@@ -22,6 +22,8 @@ import {
   ArrowDownToLine,
   Maximize2,
   Minimize2,
+  Trash2,
+  Plus,
 } from 'lucide-react'
 
 interface EditCampaignModalProps {
@@ -40,8 +42,13 @@ export function EditCampaignModal({
   const [title, setTitle] = useState('')
   const [slug, setSlug] = useState('')
   const [format, setFormat] = useState<CampaignFormat>('1:1')
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+
+  // Multi-frame states
+  const [existingFrames, setExistingFrames] = useState<string[]>([])
+  const [newFiles, setNewFiles] = useState<File[]>([])
+  const [newPreviewUrls, setNewPreviewUrls] = useState<string[]>([])
+  const [activeFrameUrl, setActiveFrameUrl] = useState<string>('')
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -62,30 +69,43 @@ export function EditCampaignModal({
   const canvasWidth = 1080
   const canvasHeight = format === '4:5' || format === '3:4' ? 1350 : 1080
 
+  const loadFramePreview = useCallback((url: string) => {
+    setActiveFrameUrl(url)
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.src = url
+    img.onload = () => {
+      frameImageRef.current = img
+      const initialScale = canvasWidth / img.naturalWidth
+      setFrameScale(initialScale)
+      setFramePosition({ x: 0, y: 0 })
+    }
+  }, [canvasWidth])
+
   useEffect(() => {
     if (campaign && isOpen) {
       setTitle(campaign.title)
       setSlug(campaign.slug)
       setFormat(campaign.format || '1:1')
-      setSelectedFile(null)
-      setPreviewUrl(campaign.frame_url)
+
+      const frames =
+        campaign.frames && Array.isArray(campaign.frames) && campaign.frames.length > 0
+          ? campaign.frames
+          : [campaign.frame_url]
+
+      setExistingFrames(frames)
+      setNewFiles([])
+      setNewPreviewUrls([])
       setError(null)
       setSuccess(false)
       setFrameScale(1)
       setFramePosition({ x: 0, y: 0 })
 
-      // Load current frame image into ref
-      const img = new Image()
-      img.crossOrigin = 'anonymous'
-      img.src = campaign.frame_url
-      img.onload = () => {
-        frameImageRef.current = img
-        const initialScale = canvasWidth / img.naturalWidth
-        setFrameScale(initialScale)
-        setFramePosition({ x: 0, y: 0 })
+      if (frames[0]) {
+        loadFramePreview(frames[0])
       }
     }
-  }, [campaign, isOpen, canvasWidth])
+  }, [campaign, isOpen, loadFramePreview])
 
   const generateSlug = (text: string) => {
     return text
@@ -97,32 +117,63 @@ export function EditCampaignModal({
       .replace(/^-|-$/g, '')
   }
 
-  const handleFileSelect = (file: File) => {
+  const handleFilesAdd = (files: FileList | File[]) => {
     setError(null)
-    if (!file) return
+    const filesArray = Array.from(files)
+    if (filesArray.length === 0) return
 
-    if (!['image/png', 'image/webp'].includes(file.type)) {
-      setError('Por favor, selecione uma imagem PNG (fundo transparente) ou WebP.')
-      return
+    const validFiles: File[] = []
+    for (const file of filesArray) {
+      if (!['image/png', 'image/webp'].includes(file.type)) {
+        setError(`O arquivo "${file.name}" não é PNG/WebP válido.`)
+        continue
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        setError(`O arquivo "${file.name}" excede 5MB.`)
+        continue
+      }
+      validFiles.push(file)
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError('O arquivo deve ter no máximo 5MB.')
+    if (validFiles.length > 0) {
+      const urls = validFiles.map((f) => URL.createObjectURL(f))
+      setNewFiles((prev) => [...prev, ...validFiles])
+      setNewPreviewUrls((prev) => [...prev, ...urls])
+
+      // Switch preview to the newly added frame
+      loadFramePreview(urls[0])
+    }
+  }
+
+  const removeExistingFrame = (indexToRemove: number) => {
+    if (existingFrames.length + newFiles.length <= 1) {
+      setError('A campanha deve manter pelo menos 1 moldura ativa.')
       return
     }
+    const updated = existingFrames.filter((_, idx) => idx !== indexToRemove)
+    setExistingFrames(updated)
+    if (activeFrameUrl === existingFrames[indexToRemove]) {
+      const nextUrl = updated[0] || newPreviewUrls[0]
+      if (nextUrl) loadFramePreview(nextUrl)
+    }
+  }
 
-    setSelectedFile(file)
-    const objectUrl = URL.createObjectURL(file)
-    setPreviewUrl(objectUrl)
+  const removeNewFile = (indexToRemove: number) => {
+    if (existingFrames.length + newFiles.length <= 1) {
+      setError('A campanha deve manter pelo menos 1 moldura ativa.')
+      return
+    }
+    if (newPreviewUrls[indexToRemove]) {
+      URL.revokeObjectURL(newPreviewUrls[indexToRemove])
+    }
+    const updatedFiles = newFiles.filter((_, idx) => idx !== indexToRemove)
+    const updatedUrls = newPreviewUrls.filter((_, idx) => idx !== indexToRemove)
+    setNewFiles(updatedFiles)
+    setNewPreviewUrls(updatedUrls)
 
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.src = objectUrl
-    img.onload = () => {
-      frameImageRef.current = img
-      const initialScale = canvasWidth / img.naturalWidth
-      setFrameScale(initialScale)
-      setFramePosition({ x: 0, y: 0 })
+    if (activeFrameUrl === newPreviewUrls[indexToRemove]) {
+      const nextUrl = existingFrames[0] || updatedUrls[0]
+      if (nextUrl) loadFramePreview(nextUrl)
     }
   }
 
@@ -233,6 +284,11 @@ export function EditCampaignModal({
       return
     }
 
+    if (existingFrames.length === 0 && newFiles.length === 0) {
+      setError('A campanha deve manter pelo menos 1 moldura ativa.')
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -241,42 +297,16 @@ export function EditCampaignModal({
       formData.append('slug', generateSlug(slug))
       formData.append('format', format)
 
-      // If a new file was selected or frame was adjusted, export from canvas
-      if (selectedFile && previewCanvasRef.current && frameImageRef.current) {
-        const offscreenCanvas = document.createElement('canvas')
-        offscreenCanvas.width = canvasWidth
-        offscreenCanvas.height = canvasHeight
-        const ctx = offscreenCanvas.getContext('2d')
+      existingFrames.forEach((frameUrl) => {
+        formData.append('existing_frames', frameUrl)
+      })
 
-        if (ctx) {
-          ctx.imageSmoothingEnabled = true
-          ctx.imageSmoothingQuality = 'high'
-          ctx.clearRect(0, 0, canvasWidth, canvasHeight)
+      newFiles.forEach((file) => {
+        formData.append('frames', file)
+      })
 
-          ctx.save()
-          if (format === 'circle') {
-            ctx.beginPath()
-            ctx.arc(canvasWidth / 2, canvasHeight / 2, canvasWidth / 2, 0, Math.PI * 2)
-            ctx.closePath()
-            ctx.clip()
-          }
-
-          ctx.translate(canvasWidth / 2 + framePosition.x, canvasHeight / 2 + framePosition.y)
-          ctx.scale(frameScale, frameScale)
-          const w = frameImageRef.current.naturalWidth
-          const h = frameImageRef.current.naturalHeight
-          ctx.drawImage(frameImageRef.current, -w / 2, -h / 2, w, h)
-          ctx.restore()
-
-          const blob = await new Promise<Blob | null>((resolve) =>
-            offscreenCanvas.toBlob(resolve, 'image/png', 1.0)
-          )
-
-          if (blob) {
-            const finalFile = new File([blob], `${slug}-frame.png`, { type: 'image/png' })
-            formData.append('frame', finalFile)
-          }
-        }
+      if (newFiles.length > 0) {
+        formData.append('frame', newFiles[0])
       }
 
       const res = await updateCampaign(campaign.id, formData)
@@ -429,28 +459,137 @@ export function EditCampaignModal({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                  Trocar Moldura PNG (Opcional)
-                </label>
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border border-dashed border-slate-700 hover:border-indigo-500/60 rounded-xl p-4 text-center cursor-pointer bg-slate-950/40 transition-colors"
-                >
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept="image/png,image/webp"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        handleFileSelect(e.target.files[0])
-                      }
-                    }}
-                  />
-                  <div className="flex items-center justify-center gap-2 text-xs text-slate-300">
-                    <UploadCloud className="w-4 h-4 text-indigo-400" />
-                    <span>{selectedFile ? selectedFile.name : 'Clique para selecionar nova imagem PNG'}</span>
-                  </div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Molduras da Campanha
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Adicionar Moldura</span>
+                  </button>
+                </div>
+
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  multiple
+                  accept="image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleFilesAdd(e.target.files)
+                    }
+                  }}
+                />
+
+                {/* Existing & New Frames List */}
+                <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                  {existingFrames.map((url, idx) => {
+                    const isActive = activeFrameUrl === url
+                    return (
+                      <div
+                        key={url + idx}
+                        onClick={() => loadFramePreview(url)}
+                        className={`flex items-center justify-between p-2 rounded-xl border transition-all cursor-pointer ${
+                          isActive
+                            ? 'border-indigo-500 bg-indigo-600/15 ring-1 ring-indigo-500/40'
+                            : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className="w-10 h-10 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center shrink-0 overflow-hidden"
+                            style={{
+                              backgroundImage: `
+                                linear-gradient(45deg, #1e293b 25%, transparent 25%),
+                                linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+                                linear-gradient(45deg, transparent 75%, #1e293b 75%),
+                                linear-gradient(-45deg, transparent 75%, #1e293b 75%)
+                              `,
+                              backgroundSize: '8px 8px',
+                            }}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={url} alt={`Moldura ${idx + 1}`} className="w-full h-full object-contain pointer-events-none" />
+                          </div>
+                          <div className="min-w-0">
+                            <span className="block text-xs font-bold text-slate-200 truncate">
+                              {idx === 0 ? 'Opção 1 (Padrão)' : `Opção ${idx + 1}`}
+                            </span>
+                            <span className="text-[10px] text-emerald-400 font-medium">Salva</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            removeExistingFrame(idx)
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                          title="Remover moldura"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )
+                  })}
+
+                  {newFiles.map((file, idx) => {
+                    const url = newPreviewUrls[idx]
+                    const isActive = activeFrameUrl === url
+                    return (
+                      <div
+                        key={file.name + idx}
+                        onClick={() => url && loadFramePreview(url)}
+                        className={`flex items-center justify-between p-2 rounded-xl border transition-all cursor-pointer ${
+                          isActive
+                            ? 'border-indigo-500 bg-indigo-600/15 ring-1 ring-indigo-500/40'
+                            : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className="w-10 h-10 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center shrink-0 overflow-hidden"
+                            style={{
+                              backgroundImage: `
+                                linear-gradient(45deg, #1e293b 25%, transparent 25%),
+                                linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+                                linear-gradient(45deg, transparent 75%, #1e293b 75%),
+                                linear-gradient(-45deg, transparent 75%, #1e293b 75%)
+                              `,
+                              backgroundSize: '8px 8px',
+                            }}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            {url && <img src={url} alt={file.name} className="w-full h-full object-contain pointer-events-none" />}
+                          </div>
+                          <div className="min-w-0">
+                            <span className="block text-xs font-bold text-slate-200 truncate">
+                              {file.name}
+                            </span>
+                            <span className="text-[10px] text-indigo-400 font-medium">Nova</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            removeNewFile(idx)
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                          title="Remover arquivo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             </div>

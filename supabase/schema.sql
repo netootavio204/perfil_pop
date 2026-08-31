@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS public.campaigns (
     user_name TEXT,
     views_count INTEGER NOT NULL DEFAULT 0,
     downloads_count INTEGER NOT NULL DEFAULT 0,
+    frames JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -28,6 +29,7 @@ ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS user_email TEXT;
 ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS user_name TEXT;
 ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS views_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS downloads_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS frames JSONB DEFAULT '[]'::jsonb;
 
 -- 3. Índices para Otimização de Busca e Performance
 CREATE INDEX IF NOT EXISTS idx_campaigns_slug ON public.campaigns(slug);

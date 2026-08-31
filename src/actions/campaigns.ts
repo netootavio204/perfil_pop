@@ -72,16 +72,24 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
   const validFormats: CampaignFormat[] = ['1:1', '4:5', '3:4', 'circle']
   const selectedFormat: CampaignFormat = validFormats.includes(format) ? format : '1:1'
 
-  if (!frameFile || frameFile.size === 0) {
-    return { success: false, error: 'Selecione uma imagem de moldura PNG.' }
+  // Support multiple frame uploads via formData.getAll('frames') or fallback to single 'frame'
+  const rawFrameFiles = formData.getAll('frames') as File[]
+  const singleFrame = formData.get('frame') as File | null
+  const frameFiles: File[] = (rawFrameFiles && rawFrameFiles.length > 0 && rawFrameFiles[0]?.size > 0)
+    ? rawFrameFiles.filter((f) => f && f.size > 0)
+    : (singleFrame && singleFrame.size > 0) ? [singleFrame] : []
+
+  if (frameFiles.length === 0) {
+    return { success: false, error: 'Selecione pelo menos uma imagem de moldura PNG.' }
   }
 
-  if (frameFile.size > 5 * 1024 * 1024) {
-    return { success: false, error: 'O arquivo da moldura não pode exceder 5MB.' }
-  }
-
-  if (!['image/png', 'image/webp'].includes(frameFile.type)) {
-    return { success: false, error: 'O formato do arquivo deve ser PNG com transparência (ou WebP).' }
+  for (const f of frameFiles) {
+    if (f.size > 5 * 1024 * 1024) {
+      return { success: false, error: `O arquivo ${f.name} excede o limite de 5MB.` }
+    }
+    if (!['image/png', 'image/webp'].includes(f.type)) {
+      return { success: false, error: `O arquivo ${f.name} deve ser PNG com transparência (ou WebP).` }
+    }
   }
 
   try {
@@ -115,44 +123,56 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
       return { success: false, error: `Já existe uma campanha com o slug "${slug}". Escolha outro link.` }
     }
 
-    // 3. Convert file to buffer for storage upload
-    const arrayBuffer = await frameFile.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-    const fileExt = frameFile.name.split('.').pop() || 'png'
-    const fileName = `${slug}-${Date.now()}.${fileExt}`
+    // 3. Upload all frames to bucket `frames`
+    const uploadedFrameUrls: string[] = []
+    const uploadedPaths: string[] = []
 
-    // Upload to bucket `frames`
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('frames')
-      .upload(fileName, buffer, {
-        contentType: frameFile.type,
-        cacheControl: '3600',
-        upsert: false,
-      })
+    for (let i = 0; i < frameFiles.length; i++) {
+      const file = frameFiles[i]
+      const arrayBuffer = await file.arrayBuffer()
+      const buffer = Buffer.from(arrayBuffer)
+      const fileExt = file.name.split('.').pop() || 'png'
+      const fileName = `${slug}-${Date.now()}-${i + 1}.${fileExt}`
 
-    if (uploadError) {
-      console.error('Storage upload error:', uploadError)
-      return {
-        success: false,
-        error: `Erro ao fazer upload da moldura: ${uploadError.message}. Certifique-se de que o bucket 'frames' foi criado no Supabase.`,
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('frames')
+        .upload(fileName, buffer, {
+          contentType: file.type || 'image/png',
+          cacheControl: '3600',
+          upsert: false,
+        })
+
+      if (uploadError) {
+        console.error('Storage upload error:', uploadError)
+        // Clean up already uploaded files
+        if (uploadedPaths.length > 0) {
+          await supabase.storage.from('frames').remove(uploadedPaths)
+        }
+        return {
+          success: false,
+          error: `Erro ao fazer upload da moldura ${i + 1}: ${uploadError.message}. Certifique-se de que o bucket 'frames' existe.`,
+        }
       }
+
+      uploadedPaths.push(uploadData.path)
+      const { data: publicUrlData } = supabase.storage
+        .from('frames')
+        .getPublicUrl(uploadData.path)
+
+      uploadedFrameUrls.push(publicUrlData.publicUrl)
     }
 
-    // Get public URL
-    const { data: publicUrlData } = supabase.storage
-      .from('frames')
-      .getPublicUrl(uploadData.path)
+    const primaryFrameUrl = uploadedFrameUrls[0]
 
-    const frameUrl = publicUrlData.publicUrl
-
-    // 4. Attempt insert with full V3 schema fields
+    // 4. Attempt insert with frames array and primary frame_url
     let newCampaign: any = null
     const { data: fullData, error: insertError } = await supabase
       .from('campaigns')
       .insert({
         title,
         slug,
-        frame_url: frameUrl,
+        frame_url: primaryFrameUrl,
+        frames: uploadedFrameUrls,
         format: selectedFormat,
         user_id: finalUserId,
         user_email: finalUserEmail,
@@ -164,16 +184,19 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
       .single()
 
     if (insertError) {
-      console.warn('First insert attempt warning:', insertError.message)
+      console.warn('First insert attempt notice (falling back without frames column):', insertError.message)
 
-      // Fallback: Insert with format & metrics only
+      // Fallback: Insert with standard fields (without frames column if not yet migrated)
       const { data: fallbackData1, error: fallbackError1 } = await supabase
         .from('campaigns')
         .insert({
           title,
           slug,
-          frame_url: frameUrl,
+          frame_url: primaryFrameUrl,
           format: selectedFormat,
+          user_id: finalUserId,
+          user_email: finalUserEmail,
+          user_name: finalUserName,
           views_count: 0,
           downloads_count: 0,
         } as any)
@@ -183,7 +206,7 @@ export async function createCampaign(formData: FormData): Promise<CreateCampaign
       if (!fallbackError1 && fallbackData1) {
         newCampaign = fallbackData1
       } else {
-        await supabase.storage.from('frames').remove([uploadData.path])
+        await supabase.storage.from('frames').remove(uploadedPaths)
         return {
           success: false,
           error: `Erro ao salvar campanha no banco: ${insertError.message}.`,
@@ -352,53 +375,90 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
       }
     }
 
-    let updatedFrameUrl = existing.frame_url
+    // 3. Handle multiple frames (existing kept + new uploaded)
+    const rawExistingFrames = formData.getAll('existing_frames') as string[]
+    const rawNewFrameFiles = formData.getAll('frames') as File[]
+    const singleNewFrame = formData.get('frame') as File | null
+    const newFrameFiles: File[] = (rawNewFrameFiles && rawNewFrameFiles.length > 0 && rawNewFrameFiles[0]?.size > 0)
+      ? rawNewFrameFiles.filter((f) => f && f.size > 0)
+      : (singleNewFrame && singleNewFrame.size > 0) ? [singleNewFrame] : []
 
-    // 3. If a new frame file is provided, upload to storage
-    if (newFrameFile && newFrameFile.size > 0 && typeof newFrameFile.arrayBuffer === 'function') {
-      const fileBuffer = await newFrameFile.arrayBuffer()
-      const sanitizedName = `${Date.now()}_${slug}_frame.png`
+    let currentFrames: string[] = []
+    if (rawExistingFrames && rawExistingFrames.length > 0) {
+      currentFrames = rawExistingFrames.filter(Boolean)
+    } else if (existing.frames && Array.isArray(existing.frames) && existing.frames.length > 0) {
+      currentFrames = existing.frames
+    } else if (existing.frame_url) {
+      currentFrames = [existing.frame_url]
+    }
+
+    // Upload newly provided frame files
+    for (let i = 0; i < newFrameFiles.length; i++) {
+      const file = newFrameFiles[i]
+      const fileBuffer = await file.arrayBuffer()
+      const sanitizedName = `${Date.now()}_${slug}_frame_${i + 1}.png`
       const filePath = `frames/${sanitizedName}`
 
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('frames')
         .upload(filePath, fileBuffer, {
-          contentType: 'image/png',
+          contentType: file.type || 'image/png',
           upsert: true,
         })
 
-      if (uploadError) {
-        return {
-          success: false,
-          error: `Erro ao enviar nova moldura: ${uploadError.message}`,
-        }
+      if (!uploadError && uploadData) {
+        const { data: publicUrlData } = supabase.storage
+          .from('frames')
+          .getPublicUrl(uploadData.path)
+
+        currentFrames.push(publicUrlData.publicUrl)
       }
-
-      const { data: publicUrlData } = supabase.storage
-        .from('frames')
-        .getPublicUrl(uploadData.path)
-
-      updatedFrameUrl = publicUrlData.publicUrl
     }
 
+    if (currentFrames.length === 0) {
+      return { success: false, error: 'A campanha deve ter pelo menos uma moldura ativa.' }
+    }
+
+    const updatedFrameUrl = currentFrames[0]
+
     // 4. Update campaign record
-    const { data: updated, error: updateError } = await supabase
+    let updated: any = null
+    const { data: fullUpdate, error: updateError } = await supabase
       .from('campaigns')
       .update({
         title,
         slug,
         format: selectedFormat,
         frame_url: updatedFrameUrl,
+        frames: currentFrames,
       } as any)
       .eq('id', campaignId)
       .select()
       .single()
 
     if (updateError) {
-      return {
-        success: false,
-        error: `Erro ao salvar alterações no banco: ${updateError.message}`,
+      // Fallback: update without frames column if not yet present in schema
+      const { data: fallbackUpdate, error: fallbackErr } = await supabase
+        .from('campaigns')
+        .update({
+          title,
+          slug,
+          format: selectedFormat,
+          frame_url: updatedFrameUrl,
+        } as any)
+        .eq('id', campaignId)
+        .select()
+        .single()
+
+      if (fallbackErr) {
+        return {
+          success: false,
+          error: `Erro ao salvar alterações no banco: ${updateError.message}`,
+        }
       }
+      updated = fallbackUpdate
+    } else {
+      updated = fullUpdate
     }
 
     revalidatePath('/admin')

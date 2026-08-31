@@ -13,6 +13,7 @@ import {
   ExternalLink,
   AlertCircle,
   X,
+  Plus,
   Square,
   Smartphone,
   CircleDot,
@@ -56,8 +57,12 @@ export function CreateCampaignForm({
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false)
   const [format, setFormat] = useState<CampaignFormat>('1:1')
   const [selectedUserId, setSelectedUserId] = useState<string>(currentUser?.id || '')
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  
+  // Multi-frame files and previews
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [previewUrls, setPreviewUrls] = useState<string[]>([])
+  const [activeFileIndex, setActiveFileIndex] = useState<number>(0)
+  
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successInfo, setSuccessInfo] = useState<{ slug: string; url: string } | null>(null)
@@ -108,42 +113,55 @@ export function CreateCampaignForm({
     setSlug(generateSlug(e.target.value))
   }
 
-  const handleFileSelect = (file: File) => {
-    setError(null)
-    if (!file) return
-
-    if (!['image/png', 'image/webp'].includes(file.type)) {
-      setError('Por favor, selecione uma imagem no formato PNG (com fundo transparente) ou WebP.')
-      return
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setError('O arquivo deve ter no máximo 5MB.')
-      return
-    }
-
-    setSelectedFile(file)
+  const loadPreviewForFile = useCallback((file: File) => {
     const objectUrl = URL.createObjectURL(file)
-    setPreviewUrl(objectUrl)
-
-    // Load image into ref and calculate initial fit
     const img = new Image()
     img.crossOrigin = 'anonymous'
     img.src = objectUrl
     img.onload = () => {
       frameImageRef.current = img
-      // Initial fit to canvas width
       const initialScale = canvasWidth / img.naturalWidth
       setFrameScale(initialScale)
       setFramePosition({ x: 0, y: 0 })
+    }
+  }, [canvasWidth])
+
+  const handleFilesAdd = (newFiles: FileList | File[]) => {
+    setError(null)
+    const filesArray = Array.from(newFiles)
+    if (filesArray.length === 0) return
+
+    const validFiles: File[] = []
+    for (const file of filesArray) {
+      if (!['image/png', 'image/webp'].includes(file.type)) {
+        setError(`O arquivo "${file.name}" não é PNG/WebP válido.`)
+        continue
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        setError(`O arquivo "${file.name}" excede o limite de 5MB.`)
+        continue
+      }
+      validFiles.push(file)
+    }
+
+    if (validFiles.length > 0) {
+      const newUrls = validFiles.map((f) => URL.createObjectURL(f))
+      setSelectedFiles((prev) => [...prev, ...validFiles])
+      setPreviewUrls((prev) => [...prev, ...newUrls])
+
+      // If this is the first file, load it immediately into the preview canvas
+      if (selectedFiles.length === 0 && validFiles[0]) {
+        setActiveFileIndex(0)
+        loadPreviewForFile(validFiles[0])
+      }
     }
   }
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     if (isFreePlanLimitReached) return
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileSelect(e.dataTransfer.files[0])
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFilesAdd(e.dataTransfer.files)
     }
   }
 
@@ -151,18 +169,51 @@ export function CreateCampaignForm({
     e.preventDefault()
   }
 
-  const removeSelectedFile = () => {
-    setSelectedFile(null)
-    frameImageRef.current = null
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl)
-      setPreviewUrl(null)
+  const setActiveFrame = (idx: number) => {
+    setActiveFileIndex(idx)
+    if (selectedFiles[idx]) {
+      loadPreviewForFile(selectedFiles[idx])
     }
+  }
+
+  const removeFileAtIndex = (indexToRemove: number) => {
+    if (previewUrls[indexToRemove]) {
+      URL.revokeObjectURL(previewUrls[indexToRemove])
+    }
+
+    const updatedFiles = selectedFiles.filter((_, idx) => idx !== indexToRemove)
+    const updatedUrls = previewUrls.filter((_, idx) => idx !== indexToRemove)
+
+    setSelectedFiles(updatedFiles)
+    setPreviewUrls(updatedUrls)
+
+    if (updatedFiles.length === 0) {
+      frameImageRef.current = null
+      setActiveFileIndex(0)
+      setFrameScale(1)
+      setFramePosition({ x: 0, y: 0 })
+    } else {
+      const nextIndex = indexToRemove >= updatedFiles.length ? updatedFiles.length - 1 : indexToRemove
+      setActiveFileIndex(nextIndex)
+      loadPreviewForFile(updatedFiles[nextIndex])
+    }
+
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
+  }
+
+  const removeAllFiles = () => {
+    previewUrls.forEach((u) => URL.revokeObjectURL(u))
+    setSelectedFiles([])
+    setPreviewUrls([])
+    setActiveFileIndex(0)
+    frameImageRef.current = null
     setFrameScale(1)
     setFramePosition({ x: 0, y: 0 })
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
   }
 
   // Draw admin preview canvas
@@ -285,19 +336,19 @@ export function CreateCampaignForm({
       return
     }
 
-    if (!selectedFile) {
-      setError('Selecione uma imagem de moldura PNG com fundo transparente.')
+    if (selectedFiles.length === 0) {
+      setError('Selecione pelo menos uma imagem de moldura PNG com fundo transparente.')
       return
     }
 
     setLoading(true)
 
     try {
-      // Export high-resolution transparent PNG directly from canvas
+      // If the admin adjusted frameScale or position on the active frame, re-export that frame
+      let adjustedActiveFile: File = selectedFiles[activeFileIndex]
       const canvas = previewCanvasRef.current
-      let finalFile: File = selectedFile
 
-      if (canvas && frameImageRef.current) {
+      if (canvas && frameImageRef.current && (frameScale !== 1 || framePosition.x !== 0 || framePosition.y !== 0)) {
         const offscreenCanvas = document.createElement('canvas')
         offscreenCanvas.width = canvasWidth
         offscreenCanvas.height = canvasHeight
@@ -328,16 +379,24 @@ export function CreateCampaignForm({
           )
 
           if (blob) {
-            finalFile = new File([blob], `${slug}-frame.png`, { type: 'image/png' })
+            adjustedActiveFile = new File([blob], `${slug}-frame-${activeFileIndex + 1}.png`, { type: 'image/png' })
           }
         }
       }
+
+      const filesToSend = selectedFiles.map((file, idx) =>
+        idx === activeFileIndex ? adjustedActiveFile : file
+      )
 
       const formData = new FormData()
       formData.append('title', title.trim())
       formData.append('slug', slug.trim())
       formData.append('format', format)
-      formData.append('frame', finalFile)
+
+      filesToSend.forEach((file) => {
+        formData.append('frames', file)
+      })
+      formData.append('frame', filesToSend[0])
 
       if (currentUser?.can_access_master_admin) {
         const targetUser = users.find((u) => u.id === selectedUserId)
@@ -361,7 +420,7 @@ export function CreateCampaignForm({
         setSlug('')
         setSlugManuallyEdited(false)
         setFormat('1:1')
-        removeSelectedFile()
+        removeAllFiles()
         router.refresh()
         onCampaignCreated?.()
       } else {
@@ -596,16 +655,23 @@ export function CreateCampaignForm({
 
               {/* Upload Input Area */}
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-                  Moldura PNG (Fundo Transparente) <span className="text-indigo-400">*</span>
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Moldura(s) PNG (Fundo Transparente) <span className="text-indigo-400">*</span>
+                  </label>
+                  {selectedFiles.length > 0 && (
+                    <span className="text-xs text-indigo-400 font-medium">
+                      {selectedFiles.length} {selectedFiles.length === 1 ? 'moldura' : 'molduras'}
+                    </span>
+                  )}
+                </div>
 
                 <div
                   onDrop={handleDrop}
                   onDragOver={handleDragOver}
                   onClick={() => !isFreePlanLimitReached && fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
-                    selectedFile
+                  className={`border-2 border-dashed rounded-2xl p-5 text-center cursor-pointer transition-all ${
+                    selectedFiles.length > 0
                       ? 'border-indigo-500/50 bg-indigo-500/5'
                       : 'border-slate-800 hover:border-slate-700 bg-slate-950/40 hover:bg-slate-950/80'
                   }`}
@@ -613,30 +679,106 @@ export function CreateCampaignForm({
                   <input
                     type="file"
                     ref={fileInputRef}
+                    multiple
                     disabled={isFreePlanLimitReached}
                     accept="image/png,image/webp"
                     className="hidden"
                     onChange={(e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        handleFileSelect(e.target.files[0])
+                      if (e.target.files && e.target.files.length > 0) {
+                        handleFilesAdd(e.target.files)
                       }
                     }}
                   />
 
                   <div className="flex flex-col items-center justify-center">
-                    <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-indigo-400 mb-3 shadow-inner">
-                      <UploadCloud className="w-6 h-6" />
+                    <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center text-indigo-400 mb-2 shadow-inner">
+                      <UploadCloud className="w-5 h-5" />
                     </div>
                     <p className="text-sm font-medium text-slate-200">
-                      {selectedFile ? selectedFile.name : 'Clique para selecionar ou arraste o PNG'}
+                      {selectedFiles.length > 0
+                        ? 'Clique ou arraste para adicionar mais molduras'
+                        : 'Clique para selecionar ou arraste 1 ou mais arquivos PNG'}
                     </p>
                     <p className="text-xs text-slate-500 mt-1">
-                      {selectedFile
-                        ? `${(selectedFile.size / 1024 / 1024).toFixed(2)} MB • PNG (Você pode ajustar a posição no quadro ao lado)`
-                        : `Formato selecionado: ${format === '1:1' ? '1:1 Quadrado' : (format === '4:5' || format === '3:4') ? '4:5 Retrato' : 'Redondo Perfil'} • PNG transparente até 5MB`}
+                      PNG transparente até 5MB cada • O apoiador poderá escolher entre as opções
                     </p>
                   </div>
                 </div>
+
+                {/* Thumbnails Gallery of Uploaded Frames */}
+                {selectedFiles.length > 0 && (
+                  <div className="mt-3.5 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                        Molduras Adicionadas ({selectedFiles.length}):
+                      </span>
+                      <button
+                        type="button"
+                        onClick={removeAllFiles}
+                        className="text-[11px] text-rose-400 hover:text-rose-300 transition-colors"
+                      >
+                        Limpar todas
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      {selectedFiles.map((file, idx) => {
+                        const isActive = idx === activeFileIndex
+                        return (
+                          <div
+                            key={file.name + idx}
+                            onClick={() => setActiveFrame(idx)}
+                            className={`relative p-2 rounded-xl border transition-all cursor-pointer flex flex-col items-center group ${
+                              isActive
+                                ? 'border-indigo-500 bg-indigo-600/15 ring-2 ring-indigo-500/40 shadow-lg shadow-indigo-600/20'
+                                : 'border-slate-800 bg-slate-950/60 hover:border-slate-700 hover:bg-slate-900/60'
+                            }`}
+                          >
+                            <div
+                              className="w-full h-16 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center relative overflow-hidden mb-1.5"
+                              style={{
+                                backgroundImage: `
+                                  linear-gradient(45deg, #1e293b 25%, transparent 25%),
+                                  linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+                                  linear-gradient(45deg, transparent 75%, #1e293b 75%),
+                                  linear-gradient(-45deg, transparent 75%, #1e293b 75%)
+                                `,
+                                backgroundSize: '8px 8px',
+                              }}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={previewUrls[idx]}
+                                alt={file.name}
+                                className="w-full h-full object-contain pointer-events-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  removeFileAtIndex(idx)
+                                }}
+                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-slate-900/90 hover:bg-rose-600 text-slate-400 hover:text-white flex items-center justify-center transition-colors shadow z-10"
+                                title="Remover esta moldura"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+
+                            <div className="w-full text-center px-1">
+                              <span className="block text-[11px] font-bold text-slate-200 truncate">
+                                {idx === 0 ? 'Opção 1 (Padrão)' : `Opção ${idx + 1}`}
+                              </span>
+                              <span className="block text-[10px] text-slate-500 truncate">
+                                {(file.size / 1024 / 1024).toFixed(2)} MB
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -644,9 +786,9 @@ export function CreateCampaignForm({
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
-                  Ajuste & Pré-visualização ({format === '1:1' ? '1:1 Quadrado' : (format === '4:5' || format === '3:4') ? '4:5 Retrato' : 'Círculo'})
+                  Ajuste & Pré-visualização ({selectedFiles.length > 0 ? `Opção ${activeFileIndex + 1}` : 'Nenhuma moldura'})
                 </label>
-                {selectedFile && (
+                {selectedFiles.length > 0 && (
                   <button
                     type="button"
                     onClick={handleResetAdjustments}
@@ -659,7 +801,7 @@ export function CreateCampaignForm({
               </div>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5 flex flex-col items-center justify-center min-h-[380px] relative space-y-4">
-                {selectedFile ? (
+                {selectedFiles.length > 0 ? (
                   <>
                     {/* Interactive Frame Canvas */}
                     <div
@@ -715,7 +857,7 @@ export function CreateCampaignForm({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          removeSelectedFile()
+                          removeFileAtIndex(activeFileIndex)
                         }}
                         className="absolute top-2 right-2 z-20 p-1.5 rounded-full bg-slate-950/80 text-rose-400 hover:text-rose-300 border border-slate-800 hover:bg-slate-900 transition-colors shadow-lg cursor-pointer"
                         title="Remover moldura selecionada"
@@ -830,7 +972,7 @@ export function CreateCampaignForm({
           <div className="pt-4 border-t border-slate-800/80 flex items-center justify-end gap-3">
             <button
               type="submit"
-              disabled={loading || isFreePlanLimitReached || !title || !slug || !selectedFile}
+              disabled={loading || isFreePlanLimitReached || !title || !slug || selectedFiles.length === 0}
               className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-medium text-sm text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-600/30 cursor-pointer"
             >
               {loading ? (

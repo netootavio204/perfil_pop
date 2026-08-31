@@ -33,6 +33,20 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
   const [copied, setCopied] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Multi-frame support with 100% backward compatibility for single-frame campaigns
+  const availableFrames: string[] =
+    campaign.frames && Array.isArray(campaign.frames) && campaign.frames.length > 0
+      ? campaign.frames
+      : [campaign.frame_url]
+
+  const [selectedFrameUrl, setSelectedFrameUrl] = useState<string>(availableFrames[0])
+
+  useEffect(() => {
+    if (availableFrames.length > 0 && !availableFrames.includes(selectedFrameUrl)) {
+      setSelectedFrameUrl(availableFrames[0])
+    }
+  }, [availableFrames, selectedFrameUrl])
+
   // 1. Automatic View Telemetry on Load (Once per session per campaign)
   useEffect(() => {
     if (!campaign?.id) return
@@ -256,10 +270,74 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
           </div>
         </div>
 
+        {/* Multiple Frames Model Selector (When campaign has 2+ frames) */}
+        {availableFrames.length > 1 && (
+          <div className="max-w-lg mx-auto mb-8 animate-in fade-in duration-300">
+            <div className="flex items-center justify-between px-1 mb-2.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5 text-indigo-400" />
+                Escolha o Modelo da Moldura:
+              </span>
+              <span className="text-[11px] text-indigo-400 font-medium">
+                {availableFrames.indexOf(selectedFrameUrl) + 1} de {availableFrames.length} opções
+              </span>
+            </div>
+
+            <div className="flex items-center justify-center gap-3 overflow-x-auto p-2 rounded-2xl bg-slate-950/80 border border-slate-800 backdrop-blur-xl shadow-xl">
+              {availableFrames.map((url, index) => {
+                const isSelected = url === selectedFrameUrl
+                return (
+                  <button
+                    key={url + index}
+                    type="button"
+                    onClick={() => setSelectedFrameUrl(url)}
+                    className={`relative shrink-0 flex flex-col items-center p-2 rounded-xl border transition-all cursor-pointer group ${
+                      isSelected
+                        ? 'border-indigo-500 bg-indigo-600/20 shadow-lg shadow-indigo-600/25 ring-2 ring-indigo-500/50'
+                        : 'border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900'
+                    }`}
+                  >
+                    <div
+                      className="w-16 h-16 rounded-lg overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center relative mb-1.5"
+                      style={{
+                        backgroundImage: `
+                          linear-gradient(45deg, #1e293b 25%, transparent 25%),
+                          linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+                          linear-gradient(45deg, transparent 75%, #1e293b 75%),
+                          linear-gradient(-45deg, transparent 75%, #1e293b 75%)
+                        `,
+                        backgroundSize: '10px 10px',
+                        backgroundPosition: '0 0, 0 5px, 5px -5px, -5px 0px',
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={url}
+                        alt={`Modelo ${index + 1}`}
+                        className="w-full h-full object-contain pointer-events-none"
+                      />
+                      {isSelected && (
+                        <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow">
+                          <Check className="w-2.5 h-2.5 stroke-[3]" />
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-[11px] font-bold ${isSelected ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`}>
+                      Opção {index + 1}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {userPhoto ? (
           /* Canvas Editor View (Fases 4 & 5) */
           <CanvasEditor
-            frameUrl={campaign.frame_url}
+            frameUrl={selectedFrameUrl}
+            availableFrames={availableFrames}
+            onFrameChange={setSelectedFrameUrl}
             userPhotoFile={userPhoto}
             campaignTitle={campaign.title}
             campaignSlug={campaign.slug}
@@ -311,7 +389,7 @@ export function CampaignPublicView({ campaign }: CampaignPublicViewProps) {
 
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={campaign.frame_url}
+                  src={selectedFrameUrl}
                   alt={campaign.title}
                   className="relative z-10 w-full h-full object-contain object-bottom pointer-events-none select-none"
                 />

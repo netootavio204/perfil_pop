@@ -28,6 +28,8 @@ import {
 
 interface CanvasEditorProps {
   frameUrl: string
+  availableFrames?: string[]
+  onFrameChange?: (frameUrl: string) => void
   userPhotoFile: File
   campaignTitle: string
   campaignSlug?: string
@@ -39,6 +41,8 @@ interface CanvasEditorProps {
 
 export function CanvasEditor({
   frameUrl,
+  availableFrames,
+  onFrameChange,
   userPhotoFile,
   campaignTitle,
   campaignSlug = 'campanha',
@@ -49,6 +53,18 @@ export function CanvasEditor({
 }: CanvasEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Current active frame URL
+  const [currentFrameUrl, setCurrentFrameUrl] = useState<string>(frameUrl)
+
+  useEffect(() => {
+    setCurrentFrameUrl(frameUrl)
+  }, [frameUrl])
+
+  const handleFrameChange = (newUrl: string) => {
+    setCurrentFrameUrl(newUrl)
+    onFrameChange?.(newUrl)
+  }
 
   // Dynamic active format chosen by end user
   const [activeFormat, setActiveFormat] = useState<CampaignFormat>(initialFormat)
@@ -95,54 +111,65 @@ export function CanvasEditor({
   // Animation frame ref for 60fps rendering
   const animFrameIdRef = useRef<number | null>(null)
 
-  // 1. Load Images
+  // Track if user photo has already been initialized
+  const initializedPhotoRef = useRef<File | null>(null)
+
+  // 1. Load Frame Image (swaps frame without resetting user photo adjustments)
   useEffect(() => {
     let isCancelled = false
-    setImagesLoaded(false)
-    setLoadError(null)
 
     const frameImg = new Image()
     frameImg.crossOrigin = 'anonymous'
-    frameImg.src = frameUrl
+    frameImg.src = currentFrameUrl
+
+    frameImg.onload = () => {
+      if (!isCancelled) {
+        frameImgRef.current = frameImg
+        if (userImgRef.current) {
+          setImagesLoaded(true)
+        }
+      }
+    }
+    frameImg.onerror = () => {
+      if (!isCancelled) {
+        setLoadError('Não foi possível carregar a moldura da campanha.')
+      }
+    }
+
+    return () => {
+      isCancelled = true
+    }
+  }, [currentFrameUrl])
+
+  // 2. Load User Photo (computes initial scale & center on new photo upload)
+  useEffect(() => {
+    let isCancelled = false
+    setLoadError(null)
 
     const userImg = new Image()
     const userPhotoUrl = URL.createObjectURL(userPhotoFile)
     userImg.src = userPhotoUrl
 
-    let frameReady = false
-    let userReady = false
-
-    const checkBothLoaded = () => {
-      if (frameReady && userReady && !isCancelled) {
-        userImgRef.current = userImg
-        frameImgRef.current = frameImg
-
-        // Compute initial scale to cover canvas optimally
-        const scaleX = 1080 / userImg.naturalWidth
-        const scaleY = 1080 / userImg.naturalHeight
-        const initialScale = Math.max(scaleX, scaleY, 1)
-
-        setScale(initialScale)
-        setPosition({ x: 0, y: 0 })
-        setRotation(0)
-        setFlipH(false)
-        setImagesLoaded(true)
-      }
-    }
-
-    frameImg.onload = () => {
-      frameReady = true
-      checkBothLoaded()
-    }
-    frameImg.onerror = () => {
-      if (!isCancelled) {
-        setLoadError('Não foi possível carregar a moldura da campanha. Verifique as configurações de CORS do bucket.')
-      }
-    }
-
     userImg.onload = () => {
-      userReady = true
-      checkBothLoaded()
+      if (!isCancelled) {
+        userImgRef.current = userImg
+
+        if (initializedPhotoRef.current !== userPhotoFile) {
+          initializedPhotoRef.current = userPhotoFile
+          const scaleX = 1080 / userImg.naturalWidth
+          const scaleY = 1080 / userImg.naturalHeight
+          const initialScale = Math.max(scaleX, scaleY, 1)
+
+          setScale(initialScale)
+          setPosition({ x: 0, y: 0 })
+          setRotation(0)
+          setFlipH(false)
+        }
+
+        if (frameImgRef.current) {
+          setImagesLoaded(true)
+        }
+      }
     }
     userImg.onerror = () => {
       if (!isCancelled) {
@@ -154,7 +181,7 @@ export function CanvasEditor({
       isCancelled = true
       URL.revokeObjectURL(userPhotoUrl)
     }
-  }, [frameUrl, userPhotoFile])
+  }, [userPhotoFile])
 
   // 2. High-Performance 60 FPS Canvas Render Loop
   const renderCanvas = useCallback(() => {
@@ -625,6 +652,60 @@ export function CanvasEditor({
                 </button>
               </div>
             </div>
+
+            {/* Multi-Frame Model Selector inside Canvas Controls */}
+            {availableFrames && availableFrames.length > 1 && (
+              <div className="space-y-2 pb-4 border-b border-slate-800">
+                <div className="flex items-center justify-between text-xs">
+                  <label className="font-medium text-slate-300 flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-indigo-400" />
+                    Modelo da Moldura
+                  </label>
+                  <span className="text-[11px] text-indigo-400 font-medium">
+                    {availableFrames.indexOf(currentFrameUrl) + 1} de {availableFrames.length}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 overflow-x-auto p-1.5 rounded-xl bg-slate-950 border border-slate-800 scrollbar-thin">
+                  {availableFrames.map((url, idx) => {
+                    const isSelected = url === currentFrameUrl
+                    return (
+                      <button
+                        key={url + idx}
+                        type="button"
+                        onClick={() => handleFrameChange(url)}
+                        className={`relative shrink-0 p-1 rounded-lg border transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-indigo-500 bg-indigo-600/20 ring-2 ring-indigo-500/50'
+                            : 'border-slate-800 bg-slate-900/60 hover:border-slate-700'
+                        }`}
+                        title={`Modelo ${idx + 1}`}
+                      >
+                        <div
+                          className="w-10 h-10 rounded overflow-hidden bg-slate-950 flex items-center justify-center relative"
+                          style={{
+                            backgroundImage: `
+                              linear-gradient(45deg, #1e293b 25%, transparent 25%),
+                              linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+                              linear-gradient(45deg, transparent 75%, #1e293b 75%),
+                              linear-gradient(-45deg, transparent 75%, #1e293b 75%)
+                            `,
+                            backgroundSize: '8px 8px',
+                          }}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt={`Modelo ${idx + 1}`}
+                            className="w-full h-full object-contain pointer-events-none"
+                          />
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* 1. Zoom Control */}
             <div className="space-y-2">
