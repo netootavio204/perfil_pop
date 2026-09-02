@@ -463,23 +463,29 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
       }
 
       const fileExt = validation.extension
-      const sanitizedName = `${Date.now()}_${slug}_frame_${i + 1}.${fileExt}`
-      const filePath = `frames/${sanitizedName}`
+      const fileName = `${slug}-${Date.now()}-${i + 1}.${fileExt}`
 
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('frames')
-        .upload(filePath, buffer, {
+        .upload(fileName, buffer, {
           contentType: fileExt === 'png' ? 'image/png' : 'image/webp',
-          upsert: true,
+          cacheControl: '3600',
+          upsert: false,
         })
 
-      if (!uploadError && uploadData) {
-        const { data: publicUrlData } = supabase.storage
-          .from('frames')
-          .getPublicUrl(uploadData.path)
-
-        currentFrames.push(publicUrlData.publicUrl)
+      if (uploadError) {
+        console.error('Storage upload error in updateCampaign:', uploadError)
+        return {
+          success: false,
+          error: `Erro ao enviar a moldura "${file.name}": ${uploadError.message}. Certifique-se de que a imagem não excede 5MB.`,
+        }
       }
+
+      const { data: publicUrlData } = supabase.storage
+        .from('frames')
+        .getPublicUrl(uploadData.path)
+
+      currentFrames.push(publicUrlData.publicUrl)
     }
 
     if (currentFrames.length === 0) {

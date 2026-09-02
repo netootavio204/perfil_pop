@@ -302,10 +302,6 @@ export function EditCampaignModal({
         formData.append('frames', file)
       })
 
-      if (newFiles.length > 0) {
-        formData.append('frame', newFiles[0])
-      }
-
       const res = await updateCampaign(campaign.id, formData)
 
       if (res.success) {
@@ -319,7 +315,17 @@ export function EditCampaignModal({
         setError(res.error || 'Erro ao atualizar campanha.')
       }
     } catch (err: any) {
-      setError(err?.message || 'Erro inesperado ao salvar alterações.')
+      const rawMsg = err?.message || ''
+      if (
+        rawMsg.includes('441') ||
+        rawMsg.includes('Server Components') ||
+        rawMsg.includes('exceeded limit') ||
+        rawMsg.includes('body size')
+      ) {
+        setError('O arquivo de imagem excedeu o limite suportado ou a conexão falhou. Envie molduras PNG ou WebP de até 5MB.')
+      } else {
+        setError(rawMsg || 'Erro inesperado ao salvar alterações.')
+      }
     } finally {
       setLoading(false)
     }

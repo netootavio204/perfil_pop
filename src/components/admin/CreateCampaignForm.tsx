@@ -396,7 +396,6 @@ export function CreateCampaignForm({
       filesToSend.forEach((file) => {
         formData.append('frames', file)
       })
-      formData.append('frame', filesToSend[0])
 
       if (currentUser?.can_access_master_admin) {
         const targetUser = users.find((u) => u.id === selectedUserId)
@@ -424,10 +423,20 @@ export function CreateCampaignForm({
         router.refresh()
         onCampaignCreated?.()
       } else {
-        setError(result.error || 'Falha ao criar a campanha.')
+        setError(result.error || 'Erro ao criar campanha.')
       }
     } catch (err: any) {
-      setError(err?.message || 'Erro inesperado ao criar campanha.')
+      const rawMsg = err?.message || ''
+      if (
+        rawMsg.includes('441') ||
+        rawMsg.includes('Server Components') ||
+        rawMsg.includes('exceeded limit') ||
+        rawMsg.includes('body size')
+      ) {
+        setError('O upload das imagens excedeu o limite do servidor. Envie arquivos PNG ou WebP de até 5MB cada.')
+      } else {
+        setError(rawMsg || 'Erro inesperado ao criar campanha.')
+      }
     } finally {
       setLoading(false)
     }
