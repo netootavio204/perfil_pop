@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { deleteCampaign } from '@/actions/campaigns'
 import { Campaign, getCampaignFrames, getPrimaryFrameUrl } from '@/types/database'
@@ -53,6 +53,10 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
   const [selectedLeadsCampaign, setSelectedLeadsCampaign] = useState<Campaign | null>(null)
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null)
   const router = useRouter()
+
+  useEffect(() => {
+    setCampaigns(initialCampaigns)
+  }, [initialCampaigns])
 
   const isMaster = Boolean(currentUser?.is_master_admin || currentUser?.can_access_master_admin)
 
@@ -473,7 +477,13 @@ export function CampaignList({ initialCampaigns, users = [], currentUser }: Camp
         campaign={editingCampaign}
         isOpen={Boolean(editingCampaign)}
         onClose={() => setEditingCampaign(null)}
-        onCampaignUpdated={() => {
+        onCampaignUpdated={(updated) => {
+          if (updated) {
+            setCampaigns((prev) =>
+              prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
+            )
+            setEditingCampaign(null)
+          }
           router.refresh()
         }}
       />

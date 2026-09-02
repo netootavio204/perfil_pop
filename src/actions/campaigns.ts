@@ -308,7 +308,10 @@ export async function getCampaigns(filterUserId?: string): Promise<Campaign[]> {
       return []
     }
 
-    const allCampaigns = data as Campaign[]
+    const allCampaigns = (data as Campaign[]).map((c) => ({
+      ...c,
+      frames: getCampaignFrames(c),
+    }))
 
     // Strict multi-tenant isolation:
     // If the user does NOT have master admin access, they ONLY see their own campaigns!
@@ -541,10 +544,16 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
       revalidatePath(`/c/${existing.slug}`)
     }
 
+    const finalCampaign = {
+      ...updated,
+      frames: currentFrames,
+      frame_url: serializedFrames,
+    }
+
     return {
       success: true,
       slug,
-      campaign: updated,
+      campaign: finalCampaign,
     }
   } catch (err: any) {
     console.error('Unexpected error in updateCampaign:', err)

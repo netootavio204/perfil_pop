@@ -30,7 +30,7 @@ interface EditCampaignModalProps {
   campaign: Campaign | null
   isOpen: boolean
   onClose: () => void
-  onCampaignUpdated?: () => void
+  onCampaignUpdated?: (updatedCampaign?: Campaign) => void
 }
 
 export function EditCampaignModal({
@@ -307,7 +307,7 @@ export function EditCampaignModal({
       if (res.success) {
         setSuccess(true)
         setTimeout(() => {
-          onCampaignUpdated?.()
+          onCampaignUpdated?.(res.campaign)
           router.refresh()
           onClose()
         }, 1000)
